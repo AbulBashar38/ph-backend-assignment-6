@@ -60,6 +60,22 @@ const loginUser = catchAsync(async (req: Request, res: Response) => {
     })
 })
 
+const googleLogin = catchAsync(async (req: Request, res: Response) => {
+    const result = await AuthService.googleLogin(req.body)
+    const { accessToken, refreshToken, user, isNewUser } = result
+
+    setAuthCookies(res, { accessToken, refreshToken })
+
+    sendResponse(res, {
+        statusCode: isNewUser ? httpStatus.CREATED : httpStatus.OK,
+        success: true,
+        message: isNewUser
+            ? 'Account Created With Google Successfully'
+            : 'User Logged In With Google Successfully',
+        data: { accessToken, refreshToken, user, isNewUser },
+    })
+})
+
 const refreshToken = catchAsync(async (req: Request, res: Response) => {
     const tokens = await AuthService.refreshToken(getRefreshTokenFromRequest(req))
 
@@ -139,6 +155,7 @@ export const AuthController = {
     verifyEmail,
     resendVerificationOtp,
     loginUser,
+    googleLogin,
     refreshToken,
     logoutUser,
     getMe,

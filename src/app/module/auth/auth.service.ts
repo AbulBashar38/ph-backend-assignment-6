@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs'
 import httpStatus from 'http-status'
 import { AuthProvider, Role, UserStatus } from '../../../generated/prisma/enums'
 import config from '../../config'
+import { googleClient } from '../../lib/googleAuth'
 import { prisma } from '../../lib/prisma'
 import { redisClient } from '../../lib/redis'
 import type { RequestUser } from '../../middleware/checkAuth'
@@ -13,6 +14,7 @@ import { sendEmail, sendEmailSafely } from '../../utils/sendEmail'
 import type {
     IChangePasswordPayload,
     IForgotPasswordPayload,
+    IGoogleLoginPayload,
     ILoginPayload,
     IPendingRegistration,
     IRegisterPayload,
@@ -194,6 +196,113 @@ const loginUser = async (payload: ILoginPayload) => {
     return { user: userWithoutPassword, ...tokens }
 }
 
+const verifyGoogleIdToken = async (idToken: string) => {
+    try {
+        const ticket = await googleClient.verifyIdToken({
+            idToken,
+            audience: config.google_client_id,
+        })
+        return ticket.getPayload()
+    } catch {
+        throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid Or Expired Google ID Token')
+    }
+}
+
+const googleLogin = async (payload: IGoogleLoginPayload) => {
+    const googlePayload = await verifyGoogleIdToken(payload.idToken)
+
+    if (!googlePayload?.sub || !googlePayload.email) {
+        throw new AppError(httpStatus.UNAUTHORIZED, 'Google Account Email Not Available')
+    }
+
+    // Linking/creating by email is only safe if Google has verified that the user owns it
+    if (!googlePayload.email_verified) {
+        throw new AppError(httpStatus.FORBIDDEN, 'Your Google Email Is Not Verified')
+    }
+
+    const googleId = googlePayload.sub
+    const email = normalizeEmail(googlePayload.email)
+    const name = googlePayload.name?.trim() || email.split('@')[0]
+
+    // A Google ID always maps to the account it was first linked to, even if the Google email changes later
+    const existingUser =
+        (await prisma.user.findUnique({ where: { googleId } })) ??
+        (await prisma.user.findUnique({ where: { email } }))
+
+    if (existingUser?.isDeleted || existingUser?.status === UserStatus.DELETED) {
+        throw new AppError(httpStatus.FORBIDDEN, 'This Account Has Been Deleted')
+    }
+
+    if (existingUser?.status === UserStatus.BLOCKED) {
+        throw new AppError(
+            httpStatus.FORBIDDEN,
+            'Your Account Has Been Blocked. Please Contact Support',
+        )
+    }
+
+    if (existingUser?.googleId && existingUser.googleId !== googleId) {
+        throw new AppError(
+            httpStatus.CONFLICT,
+            'This Email Is Already Linked To A Different Google Account',
+        )
+    }
+
+    let isNewUser = false
+
+    const user = existingUser
+        ? await prisma.user.update({
+              where: { id: existingUser.id },
+              data: {
+                  googleId,
+                  emailVerified: true,
+                  // Use the Google photo only if the user has no profile image yet
+                  ...(!existingUser.imageUrl && googlePayload.picture
+                      ? { imageUrl: googlePayload.picture }
+                      : {}),
+              },
+              omit: { password: true },
+              include: { tenant: true, owner: true },
+          })
+        : await (async () => {
+              isNewUser = true
+              const profileData = { name, email }
+
+              // A concurrent first login for the same account fails with P2002 → 409
+              return prisma.user.create({
+                  data: {
+                      name,
+                      email,
+                      googleId,
+                      authProvider: AuthProvider.GOOGLE,
+                      emailVerified: true,
+                      role: payload.role,
+                      imageUrl: googlePayload.picture ?? null,
+                      ...(payload.role === Role.OWNER
+                          ? { owner: { create: profileData } }
+                          : { tenant: { create: profileData } }),
+                  },
+                  omit: { password: true },
+                  include: { tenant: true, owner: true },
+              })
+          })()
+
+    // An unfinished email/password signup for this address is no longer needed
+    await redisClient.del(registrationDataKey(email))
+
+    if (isNewUser) {
+        await sendEmailSafely({
+            to: email,
+            subject: 'Welcome To Housing & Roommate Platform',
+            templateName: 'welcome-email',
+            templateData: { name: user.name, role: user.role },
+        })
+    }
+
+    const tokens = await authTokenUtils.issueAuthTokens(user)
+
+    return { user, isNewUser, ...tokens }
+}
+
 const refreshToken = async (token: string | undefined) => {
     if (!token) {
         throw new AppError(httpStatus.UNAUTHORIZED, 'Refresh Token Is Missing')
@@ -352,6 +461,7 @@ export const AuthService = {
     verifyEmail,
     resendVerificationOtp,
     loginUser,
+    googleLogin,
     refreshToken,
     logoutUser,
     getMe,

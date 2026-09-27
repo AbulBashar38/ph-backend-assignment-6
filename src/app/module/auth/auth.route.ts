@@ -5,6 +5,7 @@ import { AuthController } from './auth.controller'
 import {
     ChangePasswordValidationZodSchema,
     ForgotPasswordValidationZodSchema,
+    GoogleLoginValidationZodSchema,
     LoginValidationZodSchema,
     RefreshTokenValidationZodSchema,
     RegisterValidationZodSchema,
@@ -27,6 +28,7 @@ router.post(
     AuthController.resendVerificationOtp,
 )
 router.post('/login', validateRequest(LoginValidationZodSchema), AuthController.loginUser)
+router.post('/google', validateRequest(GoogleLoginValidationZodSchema), AuthController.googleLogin)
 router.post(
     '/refresh-token',
     validateRequest(RefreshTokenValidationZodSchema),

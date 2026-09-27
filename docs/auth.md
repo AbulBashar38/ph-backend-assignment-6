@@ -66,17 +66,25 @@ POST /auth/login { email, password }
   → tokens + cookies, and returns { accessToken, refreshToken, user }
 ```
 
-### Google (example `googleLogin`: the frontend sends a Google ID token)
+### Google (implemented: `AuthService.googleLogin`; the frontend sends a Google **ID token**)
 
 ```text
-POST /auth/google { idToken, role?: TENANT|OWNER }      # role is used only when creating a new account; default TENANT
+POST /auth/google { idToken, role?: TENANT|OWNER }      # role only applies when a new account is created; default TENANT
   → googleClient.verifyIdToken({ idToken, audience: config.google_client_id }) → 401 on failure
-  → require payload.email and payload.name
-  → user with this googleId → log in
-  → else a CREDENTIAL user with this email → must be emailVerified and not blocked → link googleId
-  → else create User(authProvider GOOGLE, emailVerified true, password null) + Tenant/Owner profile → welcome email
-  → blocked/deleted checks → tokens + cookies
+  → require sub + email; require email_verified === true → 403 otherwise (linking by an unverified email = account takeover)
+  → find the user by googleId first (survives a Google email change), then by email
+  → deleted → 403; BLOCKED → 403; email already linked to a *different* googleId → 409
+  → existing user → set googleId (link), keep role/authProvider; use the Google picture only if imageUrl is empty → 200
+  → no user → create User(authProvider GOOGLE, emailVerified, password null, imageUrl = picture) + Tenant/Owner
+    profile; name falls back to the email's local part → welcome email → 201
+  → delete any pending email/password signup for that email (user-registration-data:{email})
+  → tokens + cookies; response data { accessToken, refreshToken, user, isNewUser }
 ```
+
+- Google-only accounts have no password: `/login`, `/forgot-password` and `/change-password` answer 400 "Continue With Google".
+- `GOOGLE_CLIENT_ID` must be the same OAuth client ID the frontend uses. No client secret is needed on the backend.
+- Frontend: Google Identity Services ("Sign in with Google" button / One Tap) returns `credential` → send it as `idToken`.
+- Manual testing: Google OAuth 2.0 Playground with your own credentials, scopes `openid email profile` → copy `id_token`.
 
 ### Forgot / reset / change password (example pattern)
 

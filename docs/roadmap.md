@@ -10,9 +10,9 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 - [x] Shared infrastructure for auth: `utils/AppError.ts`, `middleware/validateRequest.ts`, `lib/redis.ts`, `lib/nodemailer.ts`,
       `utils/authTokens.ts`, `utils/otp.ts`, `utils/sendEmail.ts`, `utils/setAuthCookie.ts`
 - [ ] Remaining infrastructure: `interfaces/index.ts` (`IQuery`), `utils/paginationHelper.ts`, `lib/cloudinary.ts`, `lib/multer.ts`,
-      `lib/googleAuth.ts`, `lib/cron.ts`
+      `lib/cron.ts` (`lib/googleAuth.ts` done)
 - [x] `config/index.ts` + `.env.example` (placeholders) for DB, JWT, super admin, Redis, SMTP, Swagger
-- [ ] Add env vars as features land: Google, Cloudinary, Stripe, `APPLICATION_EXPIRY_DAYS`
+- [ ] Add env vars as features land: Cloudinary, Stripe, `APPLICATION_EXPIRY_DAYS` (Google done)
 - [x] `server.ts` boot order: DB → Redis → mailer verify (warn only) → seeds → listen (add cron when it exists)
 - [x] Fix bugs in the starter (the example has most of them too):
   - [x] `globalErrorHandler` sends HTTP 500 for everything (use `statusCode`), and hides 4xx messages in production
@@ -32,7 +32,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 - [x] `utils/sendEmail.ts` + templates `registration-user-otp`, `welcome-email`, `forgot-password`, `reset-password-success`
 - [x] Register (pending data in Redis) → verify-email → user + profile created; resend-otp with cooldown; OTP attempt limit
 - [x] Login, refresh-token (Redis-stored, rotated), logout, me
-- [ ] Google login (`idToken`)
+- [x] Google login (`idToken`)
 - [x] Forgot / reset / change password
 
 ## Phase 2: Listings

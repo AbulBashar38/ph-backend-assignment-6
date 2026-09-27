@@ -55,6 +55,14 @@ export const RefreshTokenValidationZodSchema = z.object({
     refreshToken: z.string().optional(),
 })
 
+export const GoogleLoginValidationZodSchema = z.object({
+    idToken: z.string('Google ID Token Is Required').min(1, 'Google ID Token Is Required'),
+    // Only used when this Google login creates a new account; ignored for existing users
+    role: z
+        .enum([Role.TENANT, Role.OWNER], 'Role Must Be Either TENANT Or OWNER')
+        .default(Role.TENANT),
+})
+
 export const ChangePasswordValidationZodSchema = z
     .object({
         oldPassword: z.string('Old Password Is Required').min(1, 'Old Password Is Required'),

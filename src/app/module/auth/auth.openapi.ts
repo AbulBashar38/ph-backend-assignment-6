@@ -10,6 +10,7 @@ import {
 import {
     ChangePasswordValidationZodSchema,
     ForgotPasswordValidationZodSchema,
+    GoogleLoginValidationZodSchema,
     LoginValidationZodSchema,
     RefreshTokenValidationZodSchema,
     RegisterValidationZodSchema,
@@ -150,6 +151,40 @@ registry.registerPath({
     responses: {
         200: successResponse('User Logged In Successfully', AuthResultSchema),
         ...errorResponses(400, 401, 403),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/google',
+    tags: [TAG],
+    summary: 'Log in or sign up with Google (public)',
+    description:
+        'Send the Google **ID token** (a JWT) that the frontend gets from Google Identity Services, ' +
+        "not an access token. Its audience must be this API's `GOOGLE_CLIENT_ID`.\n\n" +
+        '- Existing account (matched by Google ID, then email) → logged in (200); an email/password account gets Google linked.\n' +
+        '- No account → a new one is created with `role` (TENANT by default) and a Tenant/Owner profile (201).\n' +
+        '- The Google email must be verified by Google (403 otherwise).\n\n' +
+        'Testing without a frontend: in the Google OAuth 2.0 Playground, use your own OAuth credentials, ' +
+        'authorize the `openid email profile` scopes, exchange the code, and copy the `id_token`.',
+    security: [],
+    request: {
+        body: jsonBody(
+            GoogleLoginValidationZodSchema.meta({
+                example: { idToken: 'eyJhbGciOiJSUzI1NiIsImtpZCI6Ij...', role: 'TENANT' },
+            }),
+        ),
+    },
+    responses: {
+        200: successResponse(
+            'User Logged In With Google Successfully',
+            AuthResultSchema.extend({ isNewUser: z.boolean() }),
+        ),
+        201: successResponse(
+            'Account Created With Google Successfully',
+            AuthResultSchema.extend({ isNewUser: z.boolean() }),
+        ),
+        ...errorResponses(400, 401, 403, 409),
     },
 })
 
