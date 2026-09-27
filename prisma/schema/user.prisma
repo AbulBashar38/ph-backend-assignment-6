@@ -1,18 +1,26 @@
 model User {
-  id                 String     @id @default(uuid())
+  id                 String       @id @default(uuid(7))
   name               String
-  email              String
-  password           String
-  emailVerified      Boolean    @default(false)
-  role               Role       @default(PATIENT)
-  status             UserStatus @default(ACTIVE)
-  needPasswordChange Boolean    @default(false)
-  isDeleted          Boolean    @default(false)
+  email              String       @unique
+  phone              String?      @unique
+  password           String?
+  googleId           String?      @unique
+  authProvider       AuthProvider @default(CREDENTIAL)
+  emailVerified      Boolean      @default(false)
+  role               Role         @default(TENANT)
+  status             UserStatus   @default(ACTIVE)
+  needPasswordChange Boolean      @default(false)
+  imageUrl           String?
+  imagePublicId      String?
+  isDeleted          Boolean      @default(false)
   deletedAt          DateTime?
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
-  patient            Patient?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  @@unique([email])
+  tenant Tenant?
+  owner  Owner?
+
+  @@index([role], name: "idx_user_role")
+  @@index([status], name: "idx_user_status")
   @@map("users")
 }

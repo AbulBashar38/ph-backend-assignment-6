@@ -11,8 +11,8 @@ One `.prisma` file per model in `prisma/schema/`, styled like the example (`@@ma
 | Model | Key fields | Notes |
 |---|---|---|
 | `User` | see [auth.md](auth.md#roles-status-user-model) | One table for all roles |
-| `Tenant` | userId @unique, name, email @unique, contactNumber?, occupation?, isDeleted | Role profile, like the example's `Patient` |
-| `Owner` | userId @unique, name, email @unique, contactNumber?, address?, isDeleted | Role profile, like the example's `Doctor` |
+| `Tenant` | userId @unique, name, email @unique, occupation?, gender?, isDeleted | Role profile, like the example's `Patient` |
+| `Owner` | userId @unique, name, email @unique, address?, isDeleted | Role profile, like the example's `Doctor` |
 | `RoommateProfile` | tenantId @unique, age, gender, occupation, budgetMin, budgetMax, preferredCity, preferredArea, moveInDate, smoking, pets, sleepSchedule, lifestyle String[], genderPreference, isActive | `isActive` = "roommate search enabled" |
 | `Property` | ownerId, title, description, propertyType, address, city, area, amenities String[], images Json? `[{ url, publicId }]`, status, expiresAt?, isDeleted | Images stored like the example's `Doctor.additionalFiles` |
 | `Room` | propertyId, name, roomType, monthlyRent Decimal(10,2), maxOccupants, currentOccupants, amenities String[], images Json?, status, availableFrom, description?, isDeleted | |
@@ -105,7 +105,7 @@ FAILED/CANCELLED can be retried (a new checkout session), which sets the status 
 5. `expiresAt = createdAt + APPLICATION_EXPIRY_DAYS` on application create.
 6. An approved application always has exactly one rental (`Rental.applicationId @unique`).
 7. A PAID `Payment` has a `stripePaymentIntentId`, and Stripe's `amount_total` equalled `amount × 100`.
-8. BLOCKED users can't log in. Their `refresh-token:{userId}` is deleted, and their properties are hidden from public search.
+8. BLOCKED users can't log in. All their refresh tokens are revoked (`authTokenUtils.revokeAllRefreshTokens`), and their properties are hidden from public search.
 9. Users can see only their own private data. Owners see applications/viewings/payments for **their** properties only.
 
 ## Concurrency pattern (use everywhere a status gates a write)

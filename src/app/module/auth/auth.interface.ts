@@ -1,19 +1,28 @@
-import type { Role } from '../../../generated/prisma/browser'
+import type z from 'zod'
+import type { Role } from '../../../generated/prisma/enums'
+import type {
+    ChangePasswordValidationZodSchema,
+    ForgotPasswordValidationZodSchema,
+    LoginValidationZodSchema,
+    RegisterValidationZodSchema,
+    ResendOtpValidationZodSchema,
+    ResetPasswordValidationZodSchema,
+    VerifyEmailValidationZodSchema,
+} from './auth.validation'
 
-export interface ILoginUserPayload {
-    email: string
-    password: string
-}
+export type IRegisterPayload = z.infer<typeof RegisterValidationZodSchema>
+export type IVerifyEmailPayload = z.infer<typeof VerifyEmailValidationZodSchema>
+export type IResendOtpPayload = z.infer<typeof ResendOtpValidationZodSchema>
+export type ILoginPayload = z.infer<typeof LoginValidationZodSchema>
+export type IChangePasswordPayload = z.infer<typeof ChangePasswordValidationZodSchema>
+export type IForgotPasswordPayload = z.infer<typeof ForgotPasswordValidationZodSchema>
+export type IResetPasswordPayload = z.infer<typeof ResetPasswordValidationZodSchema>
 
-export interface IRegisterPatientPayload {
+// Stored in Redis between /register and /verify-email; the user row is only created after verification
+export interface IPendingRegistration {
     name: string
     email: string
-    password: string
-}
-
-export interface IRequestUser {
-    userId: string
-    email: string
-    name: string
-    role: Role
+    phone: string
+    password: string // already hashed
+    role: typeof Role.TENANT | typeof Role.OWNER
 }

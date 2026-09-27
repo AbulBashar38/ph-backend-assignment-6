@@ -1,0 +1,18 @@
+model Tenant {
+  id String @id @default(uuid(7))
+
+  name       String
+  email      String    @unique
+  occupation String?
+  gender     Gender?
+  isDeleted  Boolean   @default(false)
+  deletedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([isDeleted], name: "idx_tenant_isDeleted")
+  @@map("tenants")
+}

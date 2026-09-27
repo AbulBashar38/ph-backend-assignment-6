@@ -5,32 +5,35 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 
 ## Phase 0: Foundation (bring `src/` up to the example's baseline, and fix known bugs)
 
-- [ ] Remove healthcare leftovers: `Patient` model, `DOCTOR`/`PATIENT` roles, `registerPatient`, "PH Healthcare" strings,
+- [x] Remove healthcare leftovers: `Patient` model, `DOCTOR`/`PATIENT` roles, `registerPatient`, "PH Healthcare" strings,
       the DB name, and the `package.json` name/description
-- [ ] Add the shared infrastructure (the example has working versions to learn from): `utils/AppError.ts`, `middleware/validateRequest.ts`,
-      `interfaces/index.ts` (`IQuery`), `utils/paginationHelper.ts`, and `lib/` (`redis.ts`, `nodemailer.ts`, `cloudinary.ts`, `multer.ts`,
-      `googleAuth.ts`, `cron.ts`)
-- [ ] Extend `config/index.ts` with the example's env names (plus Stripe) and update `.env.example` with **placeholders**
-- [ ] `server.ts` boot order like the example: DB → Redis → mailer verify → seeds → cron → listen
-- [ ] Fix bugs in the starter (the example has most of them too):
-  - [ ] `globalErrorHandler` sends HTTP 500 for everything (use `statusCode`), and hides 4xx messages in production
-  - [ ] Services throw plain `Error`. Use `AppError` everywhere
-  - [ ] Cookies `sameSite: 'none'` + `secure: false` → `utils/setAuthCookie.ts`
-  - [ ] `bcrypt.hash(password, 8)` → `Number(config.bcrypt_salt_rounds)`
-  - [ ] `checkAuth` looks users up by `{ id, email, name, role }` → look up by `id`, and also reject `DELETED` / `isDeleted`
-  - [ ] `config.bak_url` reads `APP_URL` → `backend_url: process.env.BACKEND_URL`
-  - [ ] Mount `notFound` before `globalErrorHandler`
-- [ ] `utils/seed.ts`: `seedSuperAdmin`, `seedTesterOwner`, `seedTesterTenant` (example style)
-- [ ] Swagger: `src/app/docs/` + `/api/docs`, and document the auth routes
+- [x] Shared infrastructure for auth: `utils/AppError.ts`, `middleware/validateRequest.ts`, `lib/redis.ts`, `lib/nodemailer.ts`,
+      `utils/authTokens.ts`, `utils/otp.ts`, `utils/sendEmail.ts`, `utils/setAuthCookie.ts`
+- [ ] Remaining infrastructure: `interfaces/index.ts` (`IQuery`), `utils/paginationHelper.ts`, `lib/cloudinary.ts`, `lib/multer.ts`,
+      `lib/googleAuth.ts`, `lib/cron.ts`
+- [x] `config/index.ts` + `.env.example` (placeholders) for DB, JWT, super admin, Redis, SMTP, Swagger
+- [ ] Add env vars as features land: Google, Cloudinary, Stripe, `APPLICATION_EXPIRY_DAYS`
+- [x] `server.ts` boot order: DB → Redis → mailer verify (warn only) → seeds → listen (add cron when it exists)
+- [x] Fix bugs in the starter (the example has most of them too):
+  - [x] `globalErrorHandler` sends HTTP 500 for everything (use `statusCode`), and hides 4xx messages in production
+  - [x] Services throw plain `Error`. Use `AppError` everywhere
+  - [x] Cookies `sameSite: 'none'` + `secure: false` → `utils/setAuthCookie.ts`
+  - [x] `bcrypt.hash(password, 8)` → `Number(config.bcrypt_salt_rounds)`
+  - [x] `checkAuth` looks users up by `{ id, email, name, role }` → look up by `id`, and also reject `DELETED` / `isDeleted`
+  - [x] `config.bak_url` reads `APP_URL` → `backend_url: process.env.BACKEND_URL`
+  - [x] Mount `notFound` before `globalErrorHandler`
+- [x] `utils/seed.ts`: `seedSuperAdmin`
+- [ ] `seedTesterOwner`, `seedTesterTenant`
+- [x] Swagger: `src/app/docs/` + `/api/docs`, and document the auth routes
 
 ## Phase 1: Auth (example `module/auth/`)
 
-- [ ] Prisma: `User` (+ `authProvider`, `googleId`, `imageUrl`, `imagePublicId`, `phone`), `Tenant`, `Owner`, enums
-- [ ] `utils/sendEmail.ts` + templates `registration-user-otp`, `welcome-email`, `forgot-password`, `reset-password-success`
-- [ ] Register (pending data in Redis) → verify-email → user + profile created; resend-otp with cooldown; OTP attempt limit
-- [ ] Login, refresh-token (Redis-stored, rotated), logout, me
+- [x] Prisma: `User` (+ `authProvider`, `googleId`, `imageUrl`, `imagePublicId`, `phone`), `Tenant`, `Owner`, enums
+- [x] `utils/sendEmail.ts` + templates `registration-user-otp`, `welcome-email`, `forgot-password`, `reset-password-success`
+- [x] Register (pending data in Redis) → verify-email → user + profile created; resend-otp with cooldown; OTP attempt limit
+- [x] Login, refresh-token (Redis-stored, rotated), logout, me
 - [ ] Google login (`idToken`)
-- [ ] Forgot / reset / change password
+- [x] Forgot / reset / change password
 
 ## Phase 2: Listings
 

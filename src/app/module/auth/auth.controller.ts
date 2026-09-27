@@ -1,121 +1,148 @@
 import type { Request, Response } from 'express'
 import httpStatus from 'http-status'
+import type { RequestUser } from '../../middleware/checkAuth'
 import { catchAsync } from '../../utils/catchAsync'
 import { sendResponse } from '../../utils/sendResponse'
-import type { IRequestUser } from './auth.interface'
+import { clearAuthCookies, setAuthCookies } from '../../utils/setAuthCookie'
 import { AuthService } from './auth.service'
 
-const registerPatient = catchAsync(async (req: Request, res: Response) => {
-    const payload = req.body
-    const result = await AuthService.registerPatient(payload)
+// Browsers send the refresh token as a cookie; Postman/mobile clients may send it in the body
+const getRefreshTokenFromRequest = (req: Request): string | undefined =>
+    req.cookies?.refreshToken ?? req.body?.refreshToken
 
-    const { accessToken, refreshToken, user, patient } = result
-
-    res.cookie('accessToken', accessToken, {
-        httpOnly: true,
-        secure: false,
-        sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24, // 24 hour or 1 day
-    })
-    res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: false,
-        sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-    })
+const registerUser = catchAsync(async (req: Request, res: Response) => {
+    await AuthService.registerUser(req.body)
 
     sendResponse(res, {
         statusCode: httpStatus.CREATED,
         success: true,
-        message: 'Patient registered successfully',
-        data: {
-            accessToken,
-            refreshToken,
-            user,
-            patient,
-        },
+        message: 'Verification OTP Sent To Your Email',
+        data: null,
+    })
+})
+
+const verifyEmail = catchAsync(async (req: Request, res: Response) => {
+    const result = await AuthService.verifyEmail(req.body)
+    const { accessToken, refreshToken, user } = result
+
+    setAuthCookies(res, { accessToken, refreshToken })
+
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: 'Email Verified And Account Created Successfully',
+        data: { accessToken, refreshToken, user },
+    })
+})
+
+const resendVerificationOtp = catchAsync(async (req: Request, res: Response) => {
+    await AuthService.resendVerificationOtp(req.body)
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'A New Verification OTP Has Been Sent',
+        data: null,
     })
 })
 
 const loginUser = catchAsync(async (req: Request, res: Response) => {
-    const payload = req.body
-    const result = await AuthService.loginUser(payload)
-    const { accessToken, refreshToken } = result
+    const result = await AuthService.loginUser(req.body)
+    const { accessToken, refreshToken, user } = result
 
-    res.cookie('accessToken', accessToken, {
-        httpOnly: true,
-        secure: false,
-        sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24, // 24 hour or 1 day
-    })
-    res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: false,
-        sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-    })
+    setAuthCookies(res, { accessToken, refreshToken })
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: 'User logged in successfully',
-        data: {
-            accessToken,
-            refreshToken,
-        },
-    })
-})
-
-const getMe = catchAsync(async (req: Request, res: Response) => {
-    const user = req.user as unknown as IRequestUser
-
-    if (!user) {
-        throw new Error('User information is missing in the request')
-    }
-
-    const result = await AuthService.getMe(user)
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: 'User profile fetched successfully',
-        data: result,
+        message: 'User Logged In Successfully',
+        data: { accessToken, refreshToken, user },
     })
 })
 
 const refreshToken = catchAsync(async (req: Request, res: Response) => {
-    if (!req.cookies.refreshToken) {
-        throw new Error('Refresh token is missing')
-    }
-    const result = await AuthService.refreshToken(req.cookies.refreshToken)
-    const { accessToken, refreshToken: newRefreshToken } = result
+    const tokens = await AuthService.refreshToken(getRefreshTokenFromRequest(req))
 
-    res.cookie('accessToken', accessToken, {
-        httpOnly: true,
-        secure: false,
-        sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24, // 24 hour or 1 day
-    })
-    res.cookie('refreshToken', newRefreshToken, {
-        httpOnly: true,
-        secure: false,
-        sameSite: 'none',
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
-    })
+    setAuthCookies(res, tokens)
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: 'New tokens generated successfully',
-        data: {
-            accessToken,
-            refreshToken: newRefreshToken,
-        },
+        message: 'New Tokens Generated Successfully',
+        data: tokens,
+    })
+})
+
+const logoutUser = catchAsync(async (req: Request, res: Response) => {
+    await AuthService.logoutUser(getRefreshTokenFromRequest(req))
+
+    clearAuthCookies(res)
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'User Logged Out Successfully',
+        data: null,
+    })
+})
+
+const getMe = catchAsync(async (req: Request, res: Response) => {
+    const result = await AuthService.getMe(req.user as RequestUser)
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'User Profile Retrieved Successfully',
+        data: result,
+    })
+})
+
+const changePassword = catchAsync(async (req: Request, res: Response) => {
+    const tokens = await AuthService.changePassword(req.user as RequestUser, req.body)
+
+    setAuthCookies(res, tokens)
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Password Changed Successfully',
+        data: tokens,
+    })
+})
+
+const forgotPassword = catchAsync(async (req: Request, res: Response) => {
+    await AuthService.forgotPassword(req.body)
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Password Reset OTP Sent To Your Email',
+        data: null,
+    })
+})
+
+const resetPassword = catchAsync(async (req: Request, res: Response) => {
+    await AuthService.resetPassword(req.body)
+
+    clearAuthCookies(res)
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Password Reset Successfully. Please Log In With Your New Password',
+        data: null,
     })
 })
 
 export const AuthController = {
-    registerPatient,
+    registerUser,
+    verifyEmail,
+    resendVerificationOtp,
     loginUser,
-    getMe,
     refreshToken,
+    logoutUser,
+    getMe,
+    changePassword,
+    forgotPassword,
+    resetPassword,
 }

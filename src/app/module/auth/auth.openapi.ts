@@ -1,0 +1,237 @@
+import z from 'zod'
+import { AuthProvider, Gender, Role, UserStatus } from '../../../generated/prisma/enums'
+import {
+    authSecurity,
+    errorResponses,
+    jsonBody,
+    registry,
+    successResponse,
+} from '../../docs/registry'
+import {
+    ChangePasswordValidationZodSchema,
+    ForgotPasswordValidationZodSchema,
+    LoginValidationZodSchema,
+    RefreshTokenValidationZodSchema,
+    RegisterValidationZodSchema,
+    ResendOtpValidationZodSchema,
+    ResetPasswordValidationZodSchema,
+    VerifyEmailValidationZodSchema,
+} from './auth.validation'
+
+const TAG = 'Auth'
+
+const profileBase = {
+    id: z.string(),
+    name: z.string(),
+    email: z.email(),
+    userId: z.string(),
+    isDeleted: z.boolean(),
+    deletedAt: z.iso.datetime().nullable(),
+    createdAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
+}
+
+const UserSchema = z
+    .object({
+        id: z.string().meta({ example: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }),
+        name: z.string().meta({ example: 'Rahim Uddin' }),
+        email: z.email().meta({ example: 'rahim@example.com' }),
+        phone: z.string().nullable().meta({ example: '01712345678' }),
+        role: z.enum(Role),
+        status: z.enum(UserStatus),
+        authProvider: z.enum(AuthProvider),
+        emailVerified: z.boolean(),
+        needPasswordChange: z.boolean(),
+        imageUrl: z.string().nullable(),
+        imagePublicId: z.string().nullable(),
+        googleId: z.string().nullable(),
+        isDeleted: z.boolean(),
+        deletedAt: z.iso.datetime().nullable(),
+        createdAt: z.iso.datetime(),
+        updatedAt: z.iso.datetime(),
+        tenant: z
+            .object({
+                ...profileBase,
+                occupation: z.string().nullable(),
+                gender: z.enum(Gender).nullable(),
+            })
+            .nullable(),
+        owner: z.object({ ...profileBase, address: z.string().nullable() }).nullable(),
+    })
+    // `id` makes it a named, reusable component (#/components/schemas/User)
+    .meta({ id: 'User' })
+
+const AuthTokensSchema = z.object({
+    accessToken: z.string().meta({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' }),
+    refreshToken: z.string().meta({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' }),
+})
+
+const AuthResultSchema = AuthTokensSchema.extend({ user: UserSchema })
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/register',
+    tags: [TAG],
+    summary: 'Start registration (public)',
+    description:
+        'Validates the data, stores it in Redis for 30 minutes and emails a 6-digit OTP (valid 5 minutes). ' +
+        'The account is only created after /auth/verify-email. Role must be TENANT or OWNER.',
+    security: [],
+    request: {
+        body: jsonBody(
+            RegisterValidationZodSchema.meta({
+                example: {
+                    name: 'Rahim Uddin',
+                    email: 'rahim@example.com',
+                    phone: '01712345678',
+                    password: 'Str0ng@Pass',
+                    role: 'TENANT',
+                },
+            }),
+        ),
+    },
+    responses: {
+        201: successResponse('Verification OTP Sent To Your Email'),
+        ...errorResponses(400, 409, 429, 502),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/verify-email',
+    tags: [TAG],
+    summary: 'Verify the registration OTP and create the account (public)',
+    description:
+        'Creates the user and its Tenant/Owner profile, sets auth cookies and returns the tokens. ' +
+        'After 5 wrong OTPs the code is invalidated (429).',
+    security: [],
+    request: {
+        body: jsonBody(
+            VerifyEmailValidationZodSchema.meta({
+                example: { email: 'rahim@example.com', otp: '482913' },
+            }),
+        ),
+    },
+    responses: {
+        201: successResponse('Email Verified And Account Created Successfully', AuthResultSchema),
+        ...errorResponses(400, 404, 409, 429),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/resend-otp',
+    tags: [TAG],
+    summary: 'Resend the registration OTP (public)',
+    description: 'Allowed once per minute per email.',
+    security: [],
+    request: { body: jsonBody(ResendOtpValidationZodSchema) },
+    responses: {
+        200: successResponse('A New Verification OTP Has Been Sent'),
+        ...errorResponses(400, 404, 429, 502),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/login',
+    tags: [TAG],
+    summary: 'Log in with email and password (public)',
+    description:
+        'Sets `accessToken` and `refreshToken` httpOnly cookies and also returns the tokens.',
+    security: [],
+    request: {
+        body: jsonBody(
+            LoginValidationZodSchema.meta({
+                example: { email: 'rahim@example.com', password: 'Str0ng@Pass' },
+            }),
+        ),
+    },
+    responses: {
+        200: successResponse('User Logged In Successfully', AuthResultSchema),
+        ...errorResponses(400, 401, 403),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/refresh-token',
+    tags: [TAG],
+    summary: 'Get a new token pair (public)',
+    description:
+        'Reads the refresh token from the `refreshToken` cookie or the body. Tokens are rotated: ' +
+        'the old refresh token stops working. Reusing a revoked token logs the user out everywhere.',
+    security: [],
+    request: { body: jsonBody(RefreshTokenValidationZodSchema) },
+    responses: {
+        200: successResponse('New Tokens Generated Successfully', AuthTokensSchema),
+        ...errorResponses(401),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/logout',
+    tags: [TAG],
+    summary: 'Log out this device (public)',
+    description:
+        'Revokes the refresh token (cookie or body `refreshToken`) and clears the auth cookies.',
+    security: [],
+    request: { body: jsonBody(RefreshTokenValidationZodSchema) },
+    responses: {
+        200: successResponse('User Logged Out Successfully'),
+    },
+})
+
+registry.registerPath({
+    method: 'get',
+    path: '/auth/me',
+    tags: [TAG],
+    summary: 'Get the logged-in user (any role)',
+    security: authSecurity,
+    responses: {
+        200: successResponse('User Profile Retrieved Successfully', UserSchema),
+        ...errorResponses(401, 403, 404),
+    },
+})
+
+registry.registerPath({
+    method: 'patch',
+    path: '/auth/change-password',
+    tags: [TAG],
+    summary: 'Change password (any role)',
+    description: 'Logs out all other sessions and returns a fresh token pair.',
+    security: authSecurity,
+    request: { body: jsonBody(ChangePasswordValidationZodSchema) },
+    responses: {
+        200: successResponse('Password Changed Successfully', AuthTokensSchema),
+        ...errorResponses(400, 401, 403),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/forgot-password',
+    tags: [TAG],
+    summary: 'Email a password reset OTP (public)',
+    security: [],
+    request: { body: jsonBody(ForgotPasswordValidationZodSchema) },
+    responses: {
+        200: successResponse('Password Reset OTP Sent To Your Email'),
+        ...errorResponses(400, 403, 404, 429, 502),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/auth/reset-password',
+    tags: [TAG],
+    summary: 'Reset password with the OTP (public)',
+    description: 'Logs the user out of every device.',
+    security: [],
+    request: { body: jsonBody(ResetPasswordValidationZodSchema) },
+    responses: {
+        200: successResponse('Password Reset Successfully. Please Log In With Your New Password'),
+        ...errorResponses(400, 403, 404, 429),
+    },
+})

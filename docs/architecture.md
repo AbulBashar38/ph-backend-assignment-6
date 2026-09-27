@@ -16,9 +16,9 @@ src/
       cron.ts                # all cron schedules (see Cron below)
     middleware/              # checkAuth.ts (auth + RequestUser), validateRequest.ts, globalErrorHandler.ts, notFound.ts
     utils/                   # AppError.ts, catchAsync.ts, sendResponse.ts, jwt.ts, seed.ts,
-                             # setAuthCookie.ts, uploadToCloudinary.ts, sendEmail.ts, paginationHelper.ts
+                             # setAuthCookie.ts, authTokens.ts, otp.ts, sendEmail.ts, uploadToCloudinary.ts, paginationHelper.ts
     templates/               # flat: <kebab-name>.ejs
-    docs/                    # Swagger: zod.ts, registry.ts, index.ts
+    docs/                    # Swagger: registry.ts (components + helpers), index.ts (builds the document)
     module/
       auth/ user/ property/ room/ roommate/ viewing/ application/
       rental/ payment/ notification/ admin/ analytics/ audit/
@@ -47,11 +47,11 @@ Key registry. Use kebab-case prefixes like the example's (`patient-registration-
 | Key | Value | TTL | Used by |
 |---|---|---|---|
 | `user-registration-otp:{email}` | 6-digit OTP | 5 min | register → verify-email |
-| `user-registration-data:{email}` | JSON `{ name, email, phone, password(hashed), role }` | 5 min | the user is created only after verification |
+| `user-registration-data:{email}` | JSON `{ name, email, phone, password(hashed), role }` | 30 min | the user is created only after verification |
 | `forgot-password-otp:{email}` | 6-digit OTP | 5 min | forgot → reset password |
-| `otp-attempts:{purpose}:{email}` | counter | 5 min | max 5 wrong tries, then delete the OTP |
+| `otp-attempts:{purpose}:{email}` | counter | 5 min | max 5 wrong tries, then delete the OTP (`purpose` = `user-registration` \| `forgot-password`) |
 | `otp-cooldown:{purpose}:{email}` | `1` | 60 s | resend throttle |
-| `refresh-token:{userId}` | current refresh token | refresh TTL (7 d) | refresh must match; logout deletes it |
+| `refresh-token:{userId}:{jti}` | `active`, then `used:<ms timestamp>` | refresh TTL (7 d) | rotation + reuse detection; logout deletes one, password change deletes all |
 | `roommate-matches:{tenantId}` | JSON | 10 min | roommate matching cache; delete when the profile changes |
 | `payment-lock:{rentPaymentId}` | `1` | 30 s | stops double checkout creation |
 | `rent-reminder-sent:{rentPaymentId}:{daysBefore}` | `1` | 7 d | reminder de-duplication |
@@ -143,7 +143,7 @@ Put the logic in a service method (so it's callable and testable), and keep the 
 NODE_ENV, PORT, BACKEND_URL, FRONTEND_URL
 DATABASE_URL
 BCRYPT_SALT_ROUNDS
-JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, JWT_ACCESS_EXPIRES_IN, JWT_REFRESH_EXPIRES_IN
+JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, JWT_ACCESS_EXPIRES_IN (15m), JWT_REFRESH_EXPIRES_IN (7d)
 GOOGLE_CLIENT_ID
 SUPER_ADMIN_NAME, SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD
 TESTER_OWNER_NAME, TESTER_OWNER_EMAIL, TESTER_OWNER_PASSWORD, TESTER_TENANT_NAME, TESTER_TENANT_EMAIL, TESTER_TENANT_PASSWORD

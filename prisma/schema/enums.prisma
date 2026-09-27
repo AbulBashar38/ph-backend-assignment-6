@@ -1,14 +1,19 @@
 enum Role {
   SUPER_ADMIN
   ADMIN
-  DOCTOR
-  PATIENT
+  OWNER
+  TENANT
 }
 
 enum UserStatus {
   ACTIVE
   BLOCKED
   DELETED
+}
+
+enum AuthProvider {
+  GOOGLE
+  CREDENTIAL
 }
 
 enum Gender {

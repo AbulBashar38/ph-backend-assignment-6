@@ -94,7 +94,7 @@ Things the example gets wrong, or that this project needs and the example doesn'
 | `bcrypt.hash(password, 8)` in `registerPatient` | Always `Number(config.bcrypt_salt_rounds)` | The env value is ignored otherwise |
 | `config.bak_url` reads `APP_URL` | `backend_url: process.env.BACKEND_URL` | Typo in the example |
 | OTP has no attempt limit and no resend limit | Wrong-attempt counter (max 5) and a 60 s resend cooldown in Redis | Stops OTP brute force |
-| No logout; refresh tokens can't be revoked | `/auth/logout` clears cookies and deletes the Redis refresh entry (see [auth.md](auth.md)) | Required: "Session/token management, Logout" |
+| No logout; refresh tokens can't be revoked | Per-token Redis entries with rotation + reuse detection; `/auth/logout` revokes one (see [auth.md](auth.md)) | Required: "Session/token management, Logout" |
 | Status changes via repeated `if` checks | Same guard-clause style, **plus** a conditional `updateMany({ where: { id, status: <expected> } })` and a `count === 0` check for anything contended (room, application, payment) | Two tenants racing for one room (requirement §26) |
 | bKash (`lib/bkash.ts`, `/payment/callback`) | Stripe Checkout + webhook (`lib/stripe.ts`) | Your chosen gateway |
 | No API docs (Postman collection only) | Swagger at `/api/docs` (see [api-conventions.md](api-conventions.md#api-documentation-swagger)) | Your chosen doc tool |

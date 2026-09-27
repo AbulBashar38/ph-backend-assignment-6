@@ -1,189 +1,361 @@
 import bcrypt from 'bcryptjs'
-import type { JwtPayload, SignOptions } from 'jsonwebtoken'
-import { Role, UserStatus } from '../../../generated/prisma/enums'
+import httpStatus from 'http-status'
+import { AuthProvider, Role, UserStatus } from '../../../generated/prisma/enums'
 import config from '../../config'
 import { prisma } from '../../lib/prisma'
+import { redisClient } from '../../lib/redis'
+import type { RequestUser } from '../../middleware/checkAuth'
+import { AppError } from '../../utils/AppError'
+import { authTokenUtils } from '../../utils/authTokens'
 import { jwtUtils } from '../../utils/jwt'
-import type { ILoginUserPayload, IRegisterPatientPayload, IRequestUser } from './auth.interface'
+import { OTP_EXPIRATION_SECONDS, otpUtils, type TOtpPurpose } from '../../utils/otp'
+import { sendEmail, sendEmailSafely } from '../../utils/sendEmail'
+import type {
+    IChangePasswordPayload,
+    IForgotPasswordPayload,
+    ILoginPayload,
+    IPendingRegistration,
+    IRegisterPayload,
+    IResendOtpPayload,
+    IResetPasswordPayload,
+    IVerifyEmailPayload,
+} from './auth.interface'
 
-const registerPatient = async (payload: IRegisterPatientPayload) => {
-    const { name, password } = payload
-    const email = payload.email.trim().toLowerCase()
+// Pending registration outlives the OTP so the user can request a new code without re-registering
+const REGISTRATION_DATA_EXPIRATION_SECONDS = 30 * 60
 
-    const isUserExists = await prisma.user.findUnique({
-        where: { email },
-    })
+const registrationDataKey = (email: string) => `user-registration-data:${email}`
 
-    if (isUserExists) {
-        throw new Error('User with this email already exists')
-    }
+const normalizeEmail = (email: string) => email.trim().toLowerCase()
 
-    const hashedPassword = await bcrypt.hash(password, 8)
+const hashPassword = (password: string) =>
+    bcrypt.hash(password, Number(config.bcrypt_salt_rounds) || 10)
 
-    const createdUser = await prisma.user.create({
-        data: {
-            name,
-            email,
-            password: hashedPassword,
-            role: Role.PATIENT,
-            status: UserStatus.ACTIVE,
-            emailVerified: false,
-            patient: {
-                create: { name, email },
-            },
-        },
-        omit: { password: true },
-        include: { patient: true },
-    })
+const sendOtpEmail = async (
+    purpose: TOtpPurpose,
+    { name, email, otp }: { name: string; email: string; otp: string },
+) => {
+    const isRegistration = purpose === 'user-registration'
 
-    const { patient, ...user } = createdUser
-    const jwtPayload = {
-        userId: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-    }
-
-    const accessToken = jwtUtils.createToken(
-        jwtPayload,
-        config.jwt_access_secret,
-        config.jwt_access_expires_in as SignOptions,
-    )
-
-    const refreshToken = jwtUtils.createToken(
-        jwtPayload,
-        config.jwt_refresh_secret,
-        config.jwt_refresh_expires_in as SignOptions,
-    )
-
-    return {
-        user,
-        patient,
-        accessToken,
-        refreshToken,
+    try {
+        await sendEmail({
+            to: email,
+            subject: isRegistration ? 'Verify Your Email' : 'Reset Your Password',
+            templateName: isRegistration ? 'registration-user-otp' : 'forgot-password',
+            templateData: { name, email, otp, expirationMinutes: OTP_EXPIRATION_SECONDS / 60 },
+        })
+    } catch (error) {
+        console.error(`Failed to send ${purpose} OTP email to ${email}:`, error)
+        await otpUtils.clearOtp(purpose, email)
+        throw new AppError(httpStatus.BAD_GATEWAY, 'Failed To Send OTP Email. Please Try Again')
     }
 }
 
-const loginUser = async (payload: ILoginUserPayload) => {
-    const { password } = payload
-    const email = payload.email.trim().toLowerCase()
+const registerUser = async (payload: IRegisterPayload) => {
+    const email = normalizeEmail(payload.email)
 
-    const user = await prisma.user.findUnique({
-        where: { email },
+    const existingUser = await prisma.user.findFirst({
+        where: { OR: [{ email }, { phone: payload.phone }] },
+        select: { email: true },
     })
 
-    if (!user) {
-        throw new Error('User not found')
-    }
-
-    if (user.status === UserStatus.BLOCKED) {
-        throw new Error('User is blocked')
-    }
-
-    if (user.isDeleted || user.status === UserStatus.DELETED) {
-        throw new Error('User is deleted')
-    }
-
-    const isPasswordMatched = await bcrypt.compare(password, user.password)
-
-    if (!isPasswordMatched) {
-        throw new Error('Invalid credentials')
-    }
-
-    const jwtPayload = {
-        userId: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-    }
-
-    const accessToken = jwtUtils.createToken(
-        jwtPayload,
-        config.jwt_access_secret,
-        config.jwt_access_expires_in as SignOptions,
-    )
-
-    const refreshToken = jwtUtils.createToken(
-        jwtPayload,
-        config.jwt_refresh_secret,
-        config.jwt_refresh_expires_in as SignOptions,
-    )
-
-    return {
-        accessToken,
-        refreshToken,
-    }
-}
-
-const getMe = async (user: IRequestUser) => {
-    const isUserExists = await prisma.user.findUnique({
-        where: {
-            id: user.userId,
-        },
-        include: {
-            patient: true,
-        },
-        omit: {
-            password: true,
-        },
-    })
-
-    if (!isUserExists) {
-        throw new Error('User not found')
-    }
-
-    return isUserExists
-}
-
-const refreshToken = async (token: string) => {
-    const verifiedRefreshToken = jwtUtils.verifyToken(token, config.jwt_refresh_secret)
-
-    if (!verifiedRefreshToken.success || !verifiedRefreshToken.data) {
-        throw new Error(
-            config.node_env === 'development'
-                ? verifiedRefreshToken.error
-                : 'Invalid refresh token',
+    if (existingUser) {
+        throw new AppError(
+            httpStatus.CONFLICT,
+            existingUser.email === email
+                ? 'User With This Email Already Exists'
+                : 'User With This Phone Number Already Exists',
         )
     }
 
-    const data = verifiedRefreshToken.data as JwtPayload
+    const otp = await otpUtils.createOtp('user-registration', email)
+
+    const pendingRegistration: IPendingRegistration = {
+        name: payload.name,
+        email,
+        phone: payload.phone,
+        password: await hashPassword(payload.password),
+        role: payload.role,
+    }
+
+    await redisClient.set(registrationDataKey(email), JSON.stringify(pendingRegistration), {
+        expiration: { type: 'EX', value: REGISTRATION_DATA_EXPIRATION_SECONDS },
+    })
+
+    await sendOtpEmail('user-registration', { name: payload.name, email, otp })
+}
+
+const verifyEmail = async (payload: IVerifyEmailPayload) => {
+    const email = normalizeEmail(payload.email)
+
+    const pendingRegistrationData = await redisClient.get(registrationDataKey(email))
+
+    if (!pendingRegistrationData) {
+        throw new AppError(
+            httpStatus.NOT_FOUND,
+            'Registration Not Found Or Expired. Please Register Again',
+        )
+    }
+
+    await otpUtils.verifyOtp('user-registration', email, payload.otp)
+
+    const pendingRegistration: IPendingRegistration = JSON.parse(pendingRegistrationData)
+    const profileData = { name: pendingRegistration.name, email }
+
+    // A duplicate created in the meantime fails with P2002 → 409 from the global error handler
+    const createdUser = await prisma.user.create({
+        data: {
+            name: pendingRegistration.name,
+            email,
+            phone: pendingRegistration.phone,
+            password: pendingRegistration.password,
+            role: pendingRegistration.role,
+            authProvider: AuthProvider.CREDENTIAL,
+            emailVerified: true,
+            ...(pendingRegistration.role === Role.OWNER
+                ? { owner: { create: profileData } }
+                : { tenant: { create: profileData } }),
+        },
+        omit: { password: true },
+        include: { tenant: true, owner: true },
+    })
+
+    await redisClient.del(registrationDataKey(email))
+
+    await sendEmailSafely({
+        to: email,
+        subject: 'Welcome To Housing & Roommate Platform',
+        templateName: 'welcome-email',
+        templateData: { name: createdUser.name, role: createdUser.role },
+    })
+
+    const tokens = await authTokenUtils.issueAuthTokens(createdUser)
+
+    return { user: createdUser, ...tokens }
+}
+
+const resendVerificationOtp = async (payload: IResendOtpPayload) => {
+    const email = normalizeEmail(payload.email)
+
+    const pendingRegistrationData = await redisClient.get(registrationDataKey(email))
+
+    if (!pendingRegistrationData) {
+        throw new AppError(
+            httpStatus.NOT_FOUND,
+            'Registration Not Found Or Expired. Please Register Again',
+        )
+    }
+
+    const pendingRegistration: IPendingRegistration = JSON.parse(pendingRegistrationData)
+
+    const otp = await otpUtils.createOtp('user-registration', email)
+
+    await redisClient.expire(registrationDataKey(email), REGISTRATION_DATA_EXPIRATION_SECONDS)
+
+    await sendOtpEmail('user-registration', { name: pendingRegistration.name, email, otp })
+}
+
+const loginUser = async (payload: ILoginPayload) => {
+    const email = normalizeEmail(payload.email)
 
     const user = await prisma.user.findUnique({
-        where: { id: data.userId },
+        where: { email },
+        include: { tenant: true, owner: true },
+    })
+
+    // Same message for unknown email and wrong password, so emails can't be probed
+    if (!user || user.isDeleted || user.status === UserStatus.DELETED) {
+        throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid Email Or Password')
+    }
+
+    if (!user.password) {
+        throw new AppError(
+            httpStatus.BAD_REQUEST,
+            'This Account Uses Google Login. Please Continue With Google',
+        )
+    }
+
+    const isPasswordMatched = await bcrypt.compare(payload.password, user.password)
+
+    if (!isPasswordMatched) {
+        throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid Email Or Password')
+    }
+
+    if (user.status === UserStatus.BLOCKED) {
+        throw new AppError(
+            httpStatus.FORBIDDEN,
+            'Your Account Has Been Blocked. Please Contact Support',
+        )
+    }
+
+    const { password: _password, ...userWithoutPassword } = user
+    const tokens = await authTokenUtils.issueAuthTokens(user)
+
+    return { user: userWithoutPassword, ...tokens }
+}
+
+const refreshToken = async (token: string | undefined) => {
+    if (!token) {
+        throw new AppError(httpStatus.UNAUTHORIZED, 'Refresh Token Is Missing')
+    }
+
+    const verifiedToken = jwtUtils.verifyToken(token, config.jwt_refresh_secret)
+
+    if (!verifiedToken.success || !verifiedToken.data.jti) {
+        throw new AppError(httpStatus.UNAUTHORIZED, 'Invalid Or Expired Refresh Token')
+    }
+
+    const { userId, jti } = verifiedToken.data
+
+    // Rotation: claiming marks this refresh token as used, so it can't be used again
+    const claim = await authTokenUtils.claimRefreshToken(userId, jti)
+
+    if (claim === 'reused') {
+        // A token rotated a while ago is being replayed: it may be stolen, so log the user out everywhere
+        await authTokenUtils.revokeAllRefreshTokens(userId)
+    }
+
+    if (claim !== 'claimed') {
+        throw new AppError(
+            httpStatus.UNAUTHORIZED,
+            'Refresh Token Has Been Revoked. Please Log In Again',
+        )
+    }
+
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true, role: true, status: true, isDeleted: true },
     })
 
     if (!user || user.isDeleted || user.status !== UserStatus.ACTIVE) {
-        throw new Error('User is inactive or not found')
+        await authTokenUtils.revokeAllRefreshTokens(userId)
+        throw new AppError(httpStatus.UNAUTHORIZED, 'User Is Inactive Or Not Found')
     }
 
-    const jwtPayload = {
-        userId: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
+    return authTokenUtils.issueAuthTokens(user)
+}
+
+const logoutUser = async (token: string | undefined) => {
+    if (!token) {
+        return
     }
 
-    const accessToken = jwtUtils.createToken(
-        jwtPayload,
-        config.jwt_access_secret,
-        config.jwt_access_expires_in as SignOptions,
-    )
+    const verifiedToken = jwtUtils.verifyToken(token, config.jwt_refresh_secret)
 
-    const refreshToken = jwtUtils.createToken(
-        jwtPayload,
-        config.jwt_refresh_secret,
-        config.jwt_refresh_expires_in as SignOptions,
-    )
-
-    return {
-        accessToken,
-        refreshToken,
+    if (verifiedToken.success && verifiedToken.data.jti) {
+        await authTokenUtils.revokeRefreshToken(verifiedToken.data.userId, verifiedToken.data.jti)
     }
 }
 
+const getMe = async (user: RequestUser) => {
+    const existingUser = await prisma.user.findUnique({
+        where: { id: user.userId },
+        include: { tenant: true, owner: true },
+        omit: { password: true },
+    })
+
+    if (!existingUser) {
+        throw new AppError(httpStatus.NOT_FOUND, 'User Not Found')
+    }
+
+    return existingUser
+}
+
+const changePassword = async (user: RequestUser, payload: IChangePasswordPayload) => {
+    const existingUser = await prisma.user.findUnique({ where: { id: user.userId } })
+
+    if (!existingUser) {
+        throw new AppError(httpStatus.NOT_FOUND, 'User Not Found')
+    }
+
+    if (!existingUser.password) {
+        throw new AppError(
+            httpStatus.BAD_REQUEST,
+            'This Account Uses Google Login And Has No Password',
+        )
+    }
+
+    const isPasswordMatched = await bcrypt.compare(payload.oldPassword, existingUser.password)
+
+    if (!isPasswordMatched) {
+        throw new AppError(httpStatus.UNAUTHORIZED, 'Old Password Is Incorrect')
+    }
+
+    await prisma.user.update({
+        where: { id: existingUser.id },
+        data: { password: await hashPassword(payload.newPassword), needPasswordChange: false },
+    })
+
+    // Log out every other session, then give this one fresh tokens
+    await authTokenUtils.revokeAllRefreshTokens(existingUser.id)
+
+    return authTokenUtils.issueAuthTokens(existingUser)
+}
+
+const forgotPassword = async (payload: IForgotPasswordPayload) => {
+    const email = normalizeEmail(payload.email)
+
+    const user = await prisma.user.findUnique({ where: { email } })
+
+    if (!user || user.isDeleted || user.status === UserStatus.DELETED) {
+        throw new AppError(httpStatus.NOT_FOUND, 'User Does Not Exist')
+    }
+
+    if (user.status === UserStatus.BLOCKED) {
+        throw new AppError(httpStatus.FORBIDDEN, 'Your Account Has Been Blocked')
+    }
+
+    if (!user.password) {
+        throw new AppError(
+            httpStatus.BAD_REQUEST,
+            'This Account Uses Google Login. Please Continue With Google',
+        )
+    }
+
+    const otp = await otpUtils.createOtp('forgot-password', email)
+
+    await sendOtpEmail('forgot-password', { name: user.name, email, otp })
+}
+
+const resetPassword = async (payload: IResetPasswordPayload) => {
+    const email = normalizeEmail(payload.email)
+
+    const user = await prisma.user.findUnique({ where: { email } })
+
+    if (!user || user.isDeleted || user.status === UserStatus.DELETED) {
+        throw new AppError(httpStatus.NOT_FOUND, 'User Does Not Exist')
+    }
+
+    if (user.status === UserStatus.BLOCKED) {
+        throw new AppError(httpStatus.FORBIDDEN, 'Your Account Has Been Blocked')
+    }
+
+    await otpUtils.verifyOtp('forgot-password', email, payload.otp)
+
+    await prisma.user.update({
+        where: { id: user.id },
+        data: { password: await hashPassword(payload.newPassword), needPasswordChange: false },
+    })
+
+    await authTokenUtils.revokeAllRefreshTokens(user.id)
+
+    await sendEmailSafely({
+        to: email,
+        subject: 'Your Password Was Changed',
+        templateName: 'reset-password-success',
+        templateData: { name: user.name },
+    })
+}
+
 export const AuthService = {
-    registerPatient,
+    registerUser,
+    verifyEmail,
+    resendVerificationOtp,
     loginUser,
-    getMe,
     refreshToken,
+    logoutUser,
+    getMe,
+    changePassword,
+    forgotPassword,
+    resetPassword,
 }

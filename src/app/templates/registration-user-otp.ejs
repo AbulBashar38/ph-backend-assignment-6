@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Verify Your Email</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f7f7f7; color: #333; }
+      .container { max-width: 500px; margin: 40px auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+      .otp { display: inline-block; padding: 12px 24px; background: #eef6f1; color: #1f7a4d; font-size: 28px; font-weight: bold; letter-spacing: 8px; border-radius: 4px; margin-top: 20px; }
+      .footer { margin-top: 30px; font-size: 12px; color: #888; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>Verify Your Email</h2>
+      <p>Hello <%= name %>, thanks for signing up with <%= email %>.</p>
+      <p>Use the code below to verify your email and finish creating your account:</p>
+      <div class="otp"><%= otp %></div>
+      <p>This code expires in <%= expirationMinutes %> minutes. If you didn't sign up, you can ignore this email.</p>
+      <div class="footer">&copy; Housing &amp; Roommate Platform. All rights reserved.</div>
+    </div>
+  </body>
+</html>

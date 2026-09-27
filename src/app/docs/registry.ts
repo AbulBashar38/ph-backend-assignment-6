@@ -1,0 +1,67 @@
+import { OpenAPIRegistry, type ResponseConfig } from '@asteasolutions/zod-to-openapi'
+import z from 'zod'
+
+export const registry = new OpenAPIRegistry()
+
+registry.registerComponent('securitySchemes', 'bearerAuth', {
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+})
+
+registry.registerComponent('securitySchemes', 'cookieAuth', {
+    type: 'apiKey',
+    in: 'cookie',
+    name: 'accessToken',
+})
+
+// Either an `Authorization: Bearer` header or the `accessToken` cookie works
+export const authSecurity: Record<string, string[]>[] = [{ bearerAuth: [] }, { cookieAuth: [] }]
+
+// `.meta({ id })` registers a named component without needing extendZodWithOpenApi
+const ErrorResponseSchema = z
+    .object({
+        success: z.literal(false),
+        statusCode: z.number().meta({ example: 400 }),
+        message: z.string().meta({ example: 'Invalid Email Address' }),
+    })
+    .meta({ id: 'ErrorResponse' })
+
+export const jsonBody = (schema: z.ZodType) => ({
+    content: { 'application/json': { schema } },
+})
+
+export const successResponse = (description: string, dataSchema: z.ZodType = z.null()) => ({
+    description,
+    content: {
+        'application/json': {
+            schema: z.object({
+                success: z.literal(true),
+                statusCode: z.number(),
+                message: z.string().meta({ example: description }),
+                data: dataSchema,
+            }),
+        },
+    },
+})
+
+const errorDescriptions: Record<number, string> = {
+    400: 'Invalid input',
+    401: 'Not logged in, or invalid credentials/token',
+    403: 'Forbidden (wrong role or blocked account)',
+    404: 'Not found',
+    409: 'Conflict (duplicate or invalid state)',
+    429: 'Too many requests (OTP cooldown or attempts)',
+    502: 'Upstream service failed (email, payment, upload)',
+}
+
+export const errorResponses = (...statusCodes: number[]) =>
+    Object.fromEntries(
+        statusCodes.map((statusCode): [number, ResponseConfig] => [
+            statusCode,
+            {
+                description: errorDescriptions[statusCode] ?? 'Error',
+                content: { 'application/json': { schema: ErrorResponseSchema } },
+            },
+        ]),
+    )

@@ -75,7 +75,7 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
 
 ```text
 /api/v1/auth          POST /register · /verify-email · /resend-otp · /login · /google · /refresh-token
-                      POST /logout(✱) · /forgot-password · /reset-password · PATCH /change-password(✱) · GET /me(✱)
+                      POST /logout · /forgot-password · /reset-password · PATCH /change-password(✱) · GET /me(✱)
 /api/v1/user          PATCH /profile-image(✱, multipart profileImage) · PATCH /update-my-profile(✱)
 /api/v1/property      POST /create-property(O, multipart images + data) · GET /my-properties(O) · GET /all-properties(A)
                       GET /public/all-properties🌐 · GET /public/:propertyId🌐
@@ -120,15 +120,19 @@ Mounted in `app.ts` only when `config.node_env !== 'production'` or `SWAGGER_ENA
 
 ```text
 src/app/docs/
-  zod.ts       # import z from 'zod'; extendZodWithOpenApi(z); export { z }. Only *.openapi.ts files import from here
-  registry.ts  # OpenAPIRegistry, security schemes (cookieAuth: accessToken cookie, bearerAuth: JWT), helpers:
-               # successResponse(schema), paginatedResponse(schema), errorResponses(400, 401, ...)
+  registry.ts  # OpenAPIRegistry, security schemes (cookieAuth: accessToken cookie, bearerAuth: JWT) + helpers:
+               # authSecurity, jsonBody(schema), successResponse(description, dataSchema?), errorResponses(400, 401, ...)
+               # (add paginatedResponse(description, itemSchema) with the first list endpoint)
   index.ts     # imports every module's x.openapi.ts, generates the document once
 src/app/module/<x>/x.openapi.ts
 ```
 
-- `x.validation.ts` stays plain Zod (`import z from 'zod'`, no `.openapi()` calls). `x.openapi.ts`
-  imports those schemas and registers them:
+- **Use zod's `.meta()`, never `.openapi()` or `registry.register()`.** We don't call `extendZodWithOpenApi`, so
+  `.openapi()` doesn't exist at runtime and `registry.register()` crashes on boot (it calls `.openapi()` internally).
+  - Examples/format: `.meta({ example: 'rahim@example.com', format: 'email' })`
+  - Named component (`#/components/schemas/User`): `.meta({ id: 'User' })`
+- `x.validation.ts` stays plain Zod. `x.openapi.ts` imports those schemas and registers the paths
+  (see `src/app/module/auth/auth.openapi.ts` for a complete example):
 
 ```ts
 registry.registerPath({
@@ -137,13 +141,13 @@ registry.registerPath({
     tags: ['Application'],
     summary: 'Approve a pending application (OWNER)',
     description: 'Reserves the room, creates a PENDING rental and first payment, rejects competing applications.',
-    security: [{ cookieAuth: [] }, { bearerAuth: [] }],
+    security: authSecurity,
     request: { params: z.object({ applicationId: z.string() }) },
-    responses: { 200: successResponse(ApplicationSchema, 'Application Approved Successfully'), ...errorResponses(401, 403, 404, 409) },
+    responses: { 200: successResponse('Application Approved Successfully', ApplicationSchema), ...errorResponses(401, 403, 404, 409) },
 })
 ```
 
-- Body: `request: { body: { content: { 'application/json': { schema: CreatePropertyValidationZodSchema } } } }`.
+- Body: `request: { body: jsonBody(CreatePropertyValidationZodSchema.meta({ example: {...} })) }`.
 - Multipart: `'multipart/form-data'` with `images` (`z.string().openapi({ format: 'binary' })`) and `data` (a JSON string).
 - List endpoints document their `IQuery` params with a `z.object({...})` in `request.query`.
 - Tags = module name (`Auth`, `Property`, `Room`…). Public routes set `security: []`. The Stripe webhook gets the tag
