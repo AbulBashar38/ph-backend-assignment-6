@@ -9,10 +9,9 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
       the DB name, and the `package.json` name/description
 - [x] Shared infrastructure for auth: `utils/AppError.ts`, `middleware/validateRequest.ts`, `lib/redis.ts`, `lib/nodemailer.ts`,
       `utils/authTokens.ts`, `utils/otp.ts`, `utils/sendEmail.ts`, `utils/setAuthCookie.ts`
-- [ ] Remaining infrastructure: `lib/cloudinary.ts`, `lib/multer.ts`,
-      `lib/cron.ts` (`lib/googleAuth.ts` done)
+- [ ] Remaining infrastructure: `lib/cron.ts` (Google, pagination, Multer/Cloudinary done)
 - [x] `config/index.ts` + `.env.example` (placeholders) for DB, JWT, super admin, Redis, SMTP, Swagger
-- [ ] Add env vars as features land: Cloudinary, Stripe, `APPLICATION_EXPIRY_DAYS` (Google done)
+- [ ] Add env vars as features land: Stripe, `APPLICATION_EXPIRY_DAYS` (Google, Cloudinary done)
 - [x] `server.ts` boot order: DB → Redis → mailer verify (warn only) → seeds → listen (add cron when it exists)
 - [x] Fix bugs in the starter (the example has most of them too):
   - [x] `globalErrorHandler` sends HTTP 500 for everything (use `statusCode`), and hides 4xx messages in production
@@ -40,9 +39,9 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 - [x] User: update profile, self or admin (`PATCH /user/:id`)
 - [x] User: delete account, soft delete, self or admin (`DELETE /user/:id`)
 - [x] User: list with search/filter/sort/pagination, admins only (`GET /user`); details, self or admin (`GET /user/:id`)
-- [ ] User: profile image (example `uploadProfileImage`)
+- [x] User: profile image upload/replace/remove (`PATCH`/`DELETE /user/:id/profile-image`)
 - [ ] Account deletion side effects once rentals/properties/applications exist (see docs/domain.md → Account deletion)
-- [ ] `utils/uploadToCloudinary.ts` + the image filter in `lib/multer.ts`
+- [x] Upload infrastructure: `lib/multer.ts` presets (image, document), `lib/cloudinary.ts`, `utils/cloudinaryUpload.ts`
 - [ ] Property: create (multipart), my/all/public lists with search/filter/sort/paginate, update, publish/disable, images, soft delete
 - [ ] Room: create, update, status changes with guards, public available rooms
 

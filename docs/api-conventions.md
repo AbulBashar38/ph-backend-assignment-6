@@ -39,7 +39,6 @@ Keep the example's shape and Prisma error mapping, but fix its two bugs (see [ex
 - The schema validates `req.body` only: `validateRequest(CreatePropertyValidationZodSchema)`. On failure, throw
   `AppError(400, result.error.issues[0].message)`, and `req.body = result.data`.
 - Write custom messages as the example does: `z.string().min(3, 'Title Must Be At Least 3 Characters')`.
-- Multipart routes validate in the controller: `Schema.safeParse(JSON.parse(req.body.data))` (example `applyAsDoctor`).
 - Never spread `req.body` into Prisma `data` for fields a client must not set (`status`, `ownerId`, `role`, `amount`).
   The Zod schema simply doesn't include them.
 
@@ -100,15 +99,14 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       POST /logout · /forgot-password · /reset-password · PATCH /change-password(✱) · GET /me(✱)
 /api/v1/user          GET /(A; search/filter/paginate) · GET /:id(self, or A: any account incl. soft-deleted)
                       PATCH /:id(self, or A per role rules) · DELETE /:id(self, or A per role rules; soft delete;
-                      body { password } = caller's own) · PATCH /profile-image(✱, multipart profileImage)
-/api/v1/property      POST /create-property(O, multipart images + data) · GET /my-properties(O) · GET /all-properties(A)
-                      GET /public/all-properties🌐 · GET /public/:propertyId🌐
-                      PATCH /update-property/:propertyId(O) · PATCH /publish-property/:propertyId(O)
-                      PATCH /disable-property/:propertyId(O) · PATCH /add-images/:propertyId(O, multipart)
-                      PATCH /remove-image/:propertyId(O, body { publicId }) · PATCH /moderate-property/:propertyId(A)
-                      DELETE /:propertyId(O, soft → ARCHIVED)
-/api/v1/room          POST /create-room/:propertyId(O, multipart) · PATCH /update-room/:roomId(O)
-                      PATCH /update-status/:roomId(O) · GET /public/available-rooms🌐 · GET /:roomId🌐
+                      body { password } = caller's own)
+                      PATCH /:id/profile-image(self or A; multipart `profileImage`) · DELETE /:id/profile-image(self or A)
+/api/v1/property      POST /(O, JSON) · GET /my-properties(O) · GET /(A) · GET /public/all-properties🌐 · GET /public/:id🌐
+                      PATCH /:id(O owner-of, JSON) · PATCH /:id/publish(O) · PATCH /:id/disable(O)
+                      POST /:id/images(O, multipart `images`, 1–10) · DELETE /:id/images/:imageId(O)
+                      PATCH /:id/moderate(A) · DELETE /:id(O, soft → ARCHIVED)
+/api/v1/room          POST /(O, JSON with propertyId) · PATCH /:id(O) · POST /:id/images · DELETE /:id/images/:imageId
+                      PATCH /:id/status(O) · GET /public/available-rooms🌐 · GET /public/:id🌐
 /api/v1/roommate      POST /create-profile(T) · GET /my-profile(T) · PATCH /update-my-profile(T)
                       PATCH /toggle-search(T) · GET /matches(T) · GET /:roommateProfileId(T)
 /api/v1/viewing       POST /request-viewing(T) · GET /my-viewings(T) · PATCH /cancel-viewing/:viewingId(T)
@@ -172,7 +170,7 @@ registry.registerPath({
 ```
 
 - Body: `request: { body: jsonBody(CreatePropertyValidationZodSchema.meta({ example: {...} })) }`.
-- Multipart: `'multipart/form-data'` with `images` (`z.string().openapi({ format: 'binary' })`) and `data` (a JSON string).
+- Multipart: `multipartBody(z.object({ images: fileField('…') }))` from `docs/registry.ts` (Swagger shows a file picker).
 - List endpoints document their `IQuery` params with a `z.object({...})` in `request.query`.
 - Tags = module name (`Auth`, `Property`, `Room`…). Public routes set `security: []`. The Stripe webhook gets the tag
   `Payment (Stripe webhook)` and the note "Called by Stripe only".

@@ -2,13 +2,16 @@ import z from 'zod'
 import {
     authSecurity,
     errorResponses,
+    fileField,
     jsonBody,
+    multipartBody,
     paginatedResponse,
     paginationQueryParams,
     registry,
     successResponse,
 } from '../../docs/registry'
 import { UserSchema } from '../../docs/schemas'
+import { IMAGE_UPLOAD_OPTIONS } from '../../lib/multer'
 import { USER_SEARCHABLE_FIELDS, USER_SORTABLE_FIELDS } from './user.constant'
 import {
     DeleteUserValidationZodSchema,
@@ -81,6 +84,50 @@ registry.registerPath({
     },
     responses: {
         200: successResponse('User Retrieved Successfully', UserSchema),
+        ...errorResponses(401, 403, 404),
+    },
+})
+
+const permissionsNoteShort =
+    'Any user → their own account. `ADMIN` → tenant and owner accounts. `SUPER_ADMIN` → any account.'
+
+registry.registerPath({
+    method: 'patch',
+    path: '/user/{id}/profile-image',
+    tags: [TAG],
+    summary: 'Upload or replace a profile image (self or admin)',
+    description:
+        `${permissionsNoteShort}\n\n` +
+        `Send \`multipart/form-data\` with one file in the **\`profileImage\`** field: ` +
+        `${IMAGE_UPLOAD_OPTIONS.allowedLabel}, max ${IMAGE_UPLOAD_OPTIONS.maxFileSizeMb} MB.\n\n` +
+        '- Stored on Cloudinary as a 512×512 square cropped around the face; `imageUrl` in the response is the new URL.\n' +
+        '- The previous uploaded image is deleted. A Google profile photo is simply replaced.\n' +
+        '- Wrong type or wrong field name → 400, too large → 413, Cloudinary failure → 502.',
+    security: authSecurity,
+    request: {
+        params: z.object({ id: z.string() }),
+        body: multipartBody(
+            z.object({ profileImage: fileField('The image file (JPG, PNG or WEBP)') }),
+        ),
+    },
+    responses: {
+        200: successResponse('Profile Image Updated Successfully', UserSchema),
+        ...errorResponses(400, 401, 403, 404, 413, 502),
+    },
+})
+
+registry.registerPath({
+    method: 'delete',
+    path: '/user/{id}/profile-image',
+    tags: [TAG],
+    summary: 'Remove the profile image (self or admin)',
+    description:
+        `${permissionsNoteShort}\n\n` +
+        'Sets `imageUrl` to `null` and deletes the uploaded file from Cloudinary. Calling it when there is no image is fine (200).',
+    security: authSecurity,
+    request: { params: z.object({ id: z.string() }) },
+    responses: {
+        200: successResponse('Profile Image Removed Successfully', UserSchema),
         ...errorResponses(401, 403, 404),
     },
 })

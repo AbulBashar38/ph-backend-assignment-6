@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma'
 import type { RequestUser } from '../../middleware/checkAuth'
 import { AppError } from '../../utils/AppError'
 import { authTokenUtils } from '../../utils/authTokens'
+import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
 import { USER_SEARCHABLE_FIELDS, USER_SORTABLE_FIELDS } from './user.constant'
@@ -174,6 +175,61 @@ const updateUser = async (actor: RequestUser, userId: string, payload: IUpdateUs
     })
 }
 
+const userWithProfile = {
+    omit: { password: true },
+    include: { tenant: true, owner: true },
+} as const
+
+// Upload or replace the profile picture. Same who-may-manage-whom rules as updating the profile.
+const uploadProfileImage = async (
+    actor: RequestUser,
+    userId: string,
+    file: Express.Multer.File | undefined,
+) => {
+    const user = await findActiveUser(userId)
+    assertCanManageUser(actor, user)
+
+    if (!file) {
+        throw new AppError(
+            httpStatus.BAD_REQUEST,
+            'Please Upload An Image In The "profileImage" Field',
+        )
+    }
+
+    // Stored as a 512x512 square cropped around the face: small files, consistent avatars
+    const uploaded = await cloudinaryUpload.uploadBuffer(file.buffer, `users/${user.id}`, {
+        transformation: [{ width: 512, height: 512, crop: 'fill', gravity: 'face' }],
+    })
+
+    const updatedUser = await cloudinaryUpload.withUploadRollback([uploaded], () =>
+        prisma.user.update({
+            where: { id: user.id },
+            data: { imageUrl: uploaded.url, imagePublicId: uploaded.publicId },
+            ...userWithProfile,
+        }),
+    )
+
+    // Only after the DB points at the new image. A Google photo has no publicId, so nothing is deleted.
+    await cloudinaryUpload.deleteFiles([user.imagePublicId])
+
+    return updatedUser
+}
+
+const removeProfileImage = async (actor: RequestUser, userId: string) => {
+    const user = await findActiveUser(userId)
+    assertCanManageUser(actor, user)
+
+    const updatedUser = await prisma.user.update({
+        where: { id: user.id },
+        data: { imageUrl: null, imagePublicId: null },
+        ...userWithProfile,
+    })
+
+    await cloudinaryUpload.deleteFiles([user.imagePublicId])
+
+    return updatedUser
+}
+
 // Soft delete: the rows stay for history (rentals, payments, audit); the account just stops working
 const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUserPayload) => {
     const user = await findActiveUser(userId)
@@ -232,5 +288,7 @@ export const UserServices = {
     getAllUsers,
     getUserById,
     updateUser,
+    uploadProfileImage,
+    removeProfileImage,
     deleteUser,
 }

@@ -45,6 +45,35 @@ const updateUser = catchAsync(async (req: Request, res: Response) => {
     })
 })
 
+const uploadProfileImage = catchAsync(async (req: Request, res: Response) => {
+    const result = await UserServices.uploadProfileImage(
+        req.user as RequestUser,
+        req.params.id as string,
+        req.file,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Profile Image Updated Successfully',
+        data: result,
+    })
+})
+
+const removeProfileImage = catchAsync(async (req: Request, res: Response) => {
+    const result = await UserServices.removeProfileImage(
+        req.user as RequestUser,
+        req.params.id as string,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Profile Image Removed Successfully',
+        data: result,
+    })
+})
+
 const deleteUser = catchAsync(async (req: Request, res: Response) => {
     const { isSelf } = await UserServices.deleteUser(
         req.user as RequestUser,
@@ -69,5 +98,7 @@ export const UserController = {
     getAllUsers,
     getUserById,
     updateUser,
+    uploadProfileImage,
+    removeProfileImage,
     deleteUser,
 }

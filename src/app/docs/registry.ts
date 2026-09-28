@@ -38,6 +38,14 @@ export const optionalJsonBody = (schema: z.ZodType, description: string) => ({
     content: { 'application/json': { schema } },
 })
 
+// File upload bodies. Use `fileField()` for each file input so Swagger UI shows a file picker.
+export const multipartBody = (schema: z.ZodType, description?: string) => ({
+    description,
+    content: { 'multipart/form-data': { schema } },
+})
+
+export const fileField = (description: string) => z.string().meta({ format: 'binary', description })
+
 export const successResponse = (description: string, dataSchema: z.ZodType = z.null()) => ({
     description,
     content: {
@@ -95,6 +103,7 @@ const errorDescriptions: Record<number, string> = {
     403: 'Forbidden (wrong role or blocked account)',
     404: 'Not found',
     409: 'Conflict (duplicate or invalid state)',
+    413: 'File too large',
     429: 'Too many requests (OTP cooldown or attempts)',
     502: 'Upstream service failed (email, payment, upload)',
 }

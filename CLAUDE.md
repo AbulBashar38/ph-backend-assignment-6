@@ -73,6 +73,8 @@ and every new or changed route is documented in its `x.openapi.ts`.
   (and a `DELETED`/`ARCHIVED` status where the model has one). No `prisma.x.delete()`/`deleteMany()` on business data.
   Every query for live data filters `isDeleted: false`. Applications, rentals, payments and audit logs only change status.
   Rules and checklist: [docs/domain.md → Soft delete](docs/domain.md#soft-delete-applies-to-every-delete).
+- File uploads: `imageUpload`/`documentUpload` from `lib/multer.ts` after `auth()`, and only the helpers in
+  `utils/cloudinaryUpload.ts` (upload → DB write with rollback → delete old file). See [docs/architecture.md → File upload](docs/architecture.md#file-upload-multer--cloudinary).
 - Never return `password` (`omit: { password: true }`). Read `process.env` only in `src/app/config/index.ts`.
 - Formatting follows this repo's `biome.json` (4 spaces, single quotes, no semicolons), not the example's tabs/double quotes.
 

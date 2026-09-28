@@ -16,7 +16,7 @@ src/
       cron.ts                # all cron schedules (see Cron below)
     middleware/              # checkAuth.ts (auth + RequestUser), validateRequest.ts, globalErrorHandler.ts, notFound.ts
     utils/                   # AppError.ts, catchAsync.ts, sendResponse.ts, jwt.ts, seed.ts,
-                             # setAuthCookie.ts, authTokens.ts, otp.ts, sendEmail.ts, uploadToCloudinary.ts, paginationHelper.ts
+                             # setAuthCookie.ts, authTokens.ts, otp.ts, sendEmail.ts, cloudinaryUpload.ts, paginationHelper.ts, roles.ts
     templates/               # flat: <kebab-name>.ejs
     docs/                    # Swagger: registry.ts (components + helpers), index.ts (builds the document)
     module/
@@ -105,16 +105,50 @@ says what happened (put codes in the subject: `"482913 is your … code"`).
 
 ## File upload (`multer` → `cloudinary`)
 
-- `lib/multer.ts`: `multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })`, with a
-  `fileFilter` that only allows `image/jpeg|png|webp` (an addition to the example).
-- Routes: `upload.single('profileImage')`, `upload.array('images', 10)`, or `upload.fields([...])`, placed after `auth(...)`.
-- Multipart JSON fields come as a string in `req.body.data`. As in `doctor.controller.ts` → `applyAsDoctor`, the controller
-  does `Schema.safeParse(JSON.parse(req.body.data))` and throws `AppError(400, issues[0].message)` on failure.
-- `utils/uploadToCloudinary.ts` wraps the example's `upload_stream` Promise pattern (`resource_type: 'auto'`) and returns
-  `UploadApiResponse`. Multiple files → `Promise.all`.
-- Always store `secure_url` **and** `public_id` (`imageUrl` / `imagePublicId`, or an image table). When replacing an image,
-  `cloudinary.uploader.destroy(oldPublicId)` after the DB update succeeds (as in `user.service.ts` → `uploadProfileImage`).
-  If the DB write fails, destroy the images that were just uploaded.
+Reference implementation: profile image (`PATCH /user/:id/profile-image` → `UserServices.uploadProfileImage`).
+
+**`lib/multer.ts`**: memory storage (no temp files), one preset per kind of file. The limits live in one place and are
+reused by Swagger descriptions:
+
+| Preset | Types | Max size | Max files | Use for |
+|---|---|---|---|---|
+| `imageUpload` (`IMAGE_UPLOAD_OPTIONS`) | JPG, PNG, WEBP | 5 MB | 10 | profile picture, property/room photos |
+| `documentUpload` (`DOCUMENT_UPLOAD_OPTIONS`) | JPG, PNG, WEBP, PDF | 10 MB | 5 | application documents |
+
+Route order: `auth(...)` **before** the upload middleware (anonymous requests never get buffered), e.g.
+`router.patch('/:id/profile-image', auth(), imageUpload.single('profileImage'), controller)`.
+Use `.single(field)`, `.array(field, max)` or `.fields([...])`.
+
+Errors (all turned into JSON by `globalErrorHandler`): wrong type → 400 "Only JPG, PNG Or WEBP…", wrong field name or too
+many files → 400, too large → 413, Cloudinary failure → 502.
+
+**`utils/cloudinaryUpload.ts`** (the only place that talks to Cloudinary):
+
+| Helper | Does |
+|---|---|
+| `uploadBuffer(buffer, folder, options?)` | Streams one file → `{ url, publicId }`. `resource_type: 'image'` by default, so Cloudinary rejects files that aren't really images. Failure → `AppError(502)` |
+| `uploadMany(files, folder, options?)` | Parallel uploads, **all or nothing**: if one fails, the others are deleted, then 502 |
+| `withUploadRollback(uploaded, dbWrite)` | Runs the DB write; if it throws, deletes the files just uploaded, then rethrows |
+| `deleteFiles(publicIds)` | Best-effort delete (never throws, logs failures); skips `null`/`undefined` |
+
+**Design decision: files are uploaded to the record they belong to. There is no generic `POST /upload` endpoint.**
+A generic "upload, get a URL, send the URL later" flow would need ownership checks on client-sent URLs/publicIds (otherwise
+a user could attach, or later delete, someone else's file) and a cron job for abandoned uploads. Instead:
+
+- Single-file fields (profile picture): one multipart request that uploads and saves (`PATCH /user/:id/profile-image`).
+- Records with many files (properties, rooms): **create the record with JSON first**, then add files to it:
+  `POST /property/:id/images` (multipart, 1–10 files, can be repeated), `DELETE /property/:id/images/:imageId`.
+  No "JSON inside a `data` field" multipart requests.
+
+**Rules for every upload feature:**
+
+1. Check permissions and load the record **before** uploading (no uploads for requests that will be rejected).
+2. Upload → `withUploadRollback([...], () => prisma...update(...))` → only then `deleteFiles([oldPublicId])`.
+3. Store **both** `url` and `publicId`. A URL without a `publicId` (e.g. a Google profile photo) isn't ours; never delete it.
+4. Folders under `housing/`: `users/<userId>`, `properties/<propertyId>`, `rooms/<roomId>`, `applications/<applicationId>`.
+5. Transform on upload when the use is known (avatars: `512×512`, `crop: 'fill'`, `gravity: 'face'`).
+6. Removing a file removes the **file**, not a business record: set the DB fields to `null`; soft-delete rules apply to rows.
+7. Swagger: `multipartBody(z.object({ field: fileField('…') }))` from `docs/registry.ts` shows a file picker.
 
 ## Payments (`stripe`)
 
