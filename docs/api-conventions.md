@@ -76,7 +76,8 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
 ```text
 /api/v1/auth          POST /register · /verify-email · /resend-otp · /login · /google · /refresh-token
                       POST /logout · /forgot-password · /reset-password · PATCH /change-password(✱) · GET /me(✱)
-/api/v1/user          PATCH /profile-image(✱, multipart profileImage) · PATCH /update-my-profile(✱)
+/api/v1/user          PATCH /:id(self, or A per role rules) · DELETE /:id(self, or A per role rules; soft delete;
+                      body { password } = caller's own) · PATCH /profile-image(✱, multipart profileImage)
 /api/v1/property      POST /create-property(O, multipart images + data) · GET /my-properties(O) · GET /all-properties(A)
                       GET /public/all-properties🌐 · GET /public/:propertyId🌐
                       PATCH /update-property/:propertyId(O) · PATCH /publish-property/:propertyId(O)

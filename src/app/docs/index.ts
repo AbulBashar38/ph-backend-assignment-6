@@ -3,6 +3,7 @@ import { registry } from './registry'
 
 // Each module's *.openapi.ts registers its routes on import
 import '../module/auth/auth.openapi'
+import '../module/user/user.openapi'
 
 export const openApiDocument = new OpenApiGeneratorV31(registry.definitions).generateDocument({
     openapi: '3.1.0',

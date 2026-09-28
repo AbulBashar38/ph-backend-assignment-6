@@ -87,6 +87,59 @@ An owner can't archive a property with a PENDING/ACTIVE rental.
 **Payment**: `PENDING → PAID` **only** from the verified Stripe webhook. `PENDING → FAILED | CANCELLED` via Stripe events.
 FAILED/CANCELLED can be retried (a new checkout session), which sets the status back to PENDING.
 
+## Soft delete (applies to every delete)
+
+Requirement §24: important records must never disappear. So **nothing is ever hard-deleted** by the API or by cron.
+
+**Every "delete" endpoint must:**
+
+1. Set `isDeleted: true` and `deletedAt: new Date()` (plus `status` = `DELETED`/`ARCHIVED` if the model has a status).
+2. Soft-delete dependent profile rows in the **same transaction** (e.g. user → its `Tenant`/`Owner`).
+3. Be idempotent-safe: an already-deleted record is "not found" (404/401), never deleted twice.
+4. Leave history intact: rentals, payments, applications and audit logs keep pointing at the deleted row.
+5. Write an audit log (`USER_DELETED`, `PROPERTY_ARCHIVED`, …) once the audit module exists.
+
+**Every read of live data** filters `isDeleted: false` (lists, search, detail, ownership checks, login, `auth()`).
+Unique fields (email, phone) stay on deleted rows, so they can't be reused by a new signup; restoring is an admin action.
+
+### User update & delete (`PATCH` / `DELETE /api/v1/user/:id`), implemented in `UserServices`
+
+**Who may manage whose account** (`assertCanManageUser`):
+
+| Caller → target | Update | Delete |
+|---|---|---|
+| Anyone → themselves | ✅ | ✅ (except SUPER_ADMIN) |
+| ADMIN → TENANT / OWNER | ✅ | ✅ |
+| ADMIN → another ADMIN or the SUPER_ADMIN | ❌ 403 | ❌ 403 |
+| SUPER_ADMIN → anyone | ✅ | ✅ (the SUPER_ADMIN itself can never be deleted) |
+| TENANT / OWNER → someone else | ❌ 403 | ❌ 403 |
+
+Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
+
+**Update (`PATCH /user/:id`):**
+
+- At least one field. Unknown fields are rejected (`.strict()`), so `email`, `role`, `status`, `password`, `isDeleted` can
+  never be changed here. Role/status changes will be separate admin actions.
+- `name`, `phone` for every role (phone used by another account → 409). The **target account's** role decides the profile
+  fields: TENANT → `occupation`, `gender`; OWNER → `address`. Another role's field → 400. `null` clears an optional field.
+- A new `name` is copied to the `Tenant`/`Owner` profile in the same update. A missing profile row (older accounts) is created.
+- Changing email is not supported (it would need OTP re-verification). The profile image has its own endpoint (Cloudinary).
+
+**Delete (`DELETE /user/:id`), always a soft delete:**
+
+- The **caller** re-confirms with **their own** password in the body (`{ password }`); an admin uses the admin's password,
+  not the target's. Missing → 400, wrong → 401. A stolen access token alone can't delete anything. Callers without a
+  password (Google-only) send `{}`.
+- In one transaction: `User` → `isDeleted`, `deletedAt`, `status: DELETED`; its `Tenant`/`Owner` → `isDeleted`, `deletedAt`.
+- After commit: revoke every refresh token **of the deleted user** (logged out on all devices). Their current access token
+  stops working at once, because `auth()` rejects deleted users. Auth cookies are cleared only when you delete **yourself**;
+  an admin deleting someone stays logged in.
+- Afterwards the deleted user gets: login → 401, Google login → 403, forgot-password → 404, and register with the same
+  email/phone → 409 "belongs to a deleted account, contact support".
+- **To add when those modules exist** (marked `TODO` in the service): refuse while the user has a `PENDING`/`ACTIVE` rental
+  (409); an owner's properties → `ARCHIVED` and rooms → `UNAVAILABLE`; the user's `PENDING` applications and viewings →
+  `CANCELLED` (+ notify the other party); audit `USER_UPDATED`/`USER_DELETED` when an admin acts on someone else.
+
 ## Business rules and invariants
 
 1. One active application per tenant per room. Enforce in the service **and** with a partial unique index

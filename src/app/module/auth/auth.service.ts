@@ -63,8 +63,16 @@ const registerUser = async (payload: IRegisterPayload) => {
 
     const existingUser = await prisma.user.findFirst({
         where: { OR: [{ email }, { phone: payload.phone }] },
-        select: { email: true },
+        select: { email: true, isDeleted: true },
     })
+
+    if (existingUser?.isDeleted) {
+        // Soft-deleted accounts keep their email/phone, so they can't be reused by a new signup
+        throw new AppError(
+            httpStatus.CONFLICT,
+            'This Email Or Phone Belongs To A Deleted Account. Please Contact Support To Restore It',
+        )
+    }
 
     if (existingUser) {
         throw new AppError(

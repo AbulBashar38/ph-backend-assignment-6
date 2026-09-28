@@ -37,6 +37,7 @@ with the fixes and additions below.
 ```text
 POST /auth/register { name, email, phone, password, role: TENANT|OWNER }
   → email is trimmed + lowercased by the Zod schema; 409 if a user with this email or phone exists
+    (a soft-deleted account → 409 "belongs to a deleted account, contact support")
   → hash the password (config.bcrypt_salt_rounds)
   → otp = crypto.randomInt(100000, 1000000).toString()
   → SET otp-cooldown:user-registration:{email} NX EX 60 (429 if already set)

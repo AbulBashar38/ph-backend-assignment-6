@@ -64,7 +64,10 @@ and every new or changed route is documented in its `x.openapi.ts`.
 - Contended status changes (room, application, payment) use a conditional `updateMany` and check `count === 0` → 409.
 - Ownership: resolve the caller's `Tenant`/`Owner` profile by `userId`, then check that the resource belongs to it. Role checks in routes aren't enough.
 - State-changing actions in requirements §19 write an `AuditLog`, and events in §17 create a `Notification`, both in the same transaction.
-- Soft delete (`isDeleted`, `deletedAt`) for users/properties/rooms. Applications, rentals, payments and audit logs are never deleted.
+- **Never hard-delete. Every delete is a soft delete**, in every module and every case: set `isDeleted: true` + `deletedAt`
+  (and a `DELETED`/`ARCHIVED` status where the model has one). No `prisma.x.delete()`/`deleteMany()` on business data.
+  Every query for live data filters `isDeleted: false`. Applications, rentals, payments and audit logs only change status.
+  Rules and checklist: [docs/domain.md → Soft delete](docs/domain.md#soft-delete-applies-to-every-delete).
 - Never return `password` (`omit: { password: true }`). Read `process.env` only in `src/app/config/index.ts`.
 - Formatting follows this repo's `biome.json` (4 spaces, single quotes, no semicolons), not the example's tabs/double quotes.
 

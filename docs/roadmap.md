@@ -37,7 +37,10 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 
 ## Phase 2: Listings
 
-- [ ] User: profile image (example `uploadProfileImage`), update my profile
+- [x] User: update profile, self or admin (`PATCH /user/:id`)
+- [x] User: delete account, soft delete, self or admin (`DELETE /user/:id`)
+- [ ] User: profile image (example `uploadProfileImage`)
+- [ ] Account deletion side effects once rentals/properties/applications exist (see docs/domain.md → Account deletion)
 - [ ] `utils/uploadToCloudinary.ts` + the image filter in `lib/multer.ts`
 - [ ] Property: create (multipart), my/all/public lists with search/filter/sort/paginate, update, publish/disable, images, soft delete
 - [ ] Room: create, update, status changes with guards, public available rooms
