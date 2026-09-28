@@ -3,17 +3,6 @@ import { AuthProvider, Gender, Role, UserStatus } from '../../generated/prisma/e
 
 // Response schemas shared by several modules' *.openapi.ts files
 
-const profileBase = {
-    id: z.string(),
-    name: z.string(),
-    email: z.email(),
-    userId: z.string(),
-    isDeleted: z.boolean(),
-    deletedAt: z.iso.datetime().nullable(),
-    createdAt: z.iso.datetime(),
-    updatedAt: z.iso.datetime(),
-}
-
 export const UserSchema = z
     .object({
         id: z.string().meta({ example: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }),
@@ -32,14 +21,10 @@ export const UserSchema = z
         deletedAt: z.iso.datetime().nullable(),
         createdAt: z.iso.datetime(),
         updatedAt: z.iso.datetime(),
-        tenant: z
-            .object({
-                ...profileBase,
-                occupation: z.string().nullable(),
-                gender: z.enum(Gender).nullable(),
-            })
-            .nullable(),
-        owner: z.object({ ...profileBase, address: z.string().nullable() }).nullable(),
+        // Profile details: gender/occupation are used for tenants, address for owners
+        gender: z.enum(Gender).nullable(),
+        occupation: z.string().nullable().meta({ example: 'Software Engineer' }),
+        address: z.string().nullable(),
     })
     // `id` makes it a named, reusable component (#/components/schemas/User)
     .meta({ id: 'User' })

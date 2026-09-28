@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import httpStatus from 'http-status'
-import { AuthProvider, Role, UserStatus } from '../../../generated/prisma/enums'
+import { AuthProvider, UserStatus } from '../../../generated/prisma/enums'
 import config from '../../config'
 import { googleClient } from '../../lib/googleAuth'
 import { prisma } from '../../lib/prisma'
@@ -115,7 +115,6 @@ const verifyEmail = async (payload: IVerifyEmailPayload) => {
     await otpUtils.verifyOtp('user-registration', email, payload.otp)
 
     const pendingRegistration: IPendingRegistration = JSON.parse(pendingRegistrationData)
-    const profileData = { name: pendingRegistration.name, email }
 
     // A duplicate created in the meantime fails with P2002 → 409 from the global error handler
     const createdUser = await prisma.user.create({
@@ -127,12 +126,8 @@ const verifyEmail = async (payload: IVerifyEmailPayload) => {
             role: pendingRegistration.role,
             authProvider: AuthProvider.CREDENTIAL,
             emailVerified: true,
-            ...(pendingRegistration.role === Role.OWNER
-                ? { owner: { create: profileData } }
-                : { tenant: { create: profileData } }),
         },
         omit: { password: true },
-        include: { tenant: true, owner: true },
     })
 
     await redisClient.del(registrationDataKey(email))
@@ -175,7 +170,6 @@ const loginUser = async (payload: ILoginPayload) => {
 
     const user = await prisma.user.findUnique({
         where: { email },
-        include: { tenant: true, owner: true },
     })
 
     // Same message for unknown email and wrong password, so emails can't be probed
@@ -274,11 +268,9 @@ const googleLogin = async (payload: IGoogleLoginPayload) => {
                       : {}),
               },
               omit: { password: true },
-              include: { tenant: true, owner: true },
           })
         : await (async () => {
               isNewUser = true
-              const profileData = { name, email }
 
               // A concurrent first login for the same account fails with P2002 → 409
               return prisma.user.create({
@@ -290,12 +282,8 @@ const googleLogin = async (payload: IGoogleLoginPayload) => {
                       emailVerified: true,
                       role: payload.role,
                       imageUrl: googlePayload.picture ?? null,
-                      ...(payload.role === Role.OWNER
-                          ? { owner: { create: profileData } }
-                          : { tenant: { create: profileData } }),
                   },
                   omit: { password: true },
-                  include: { tenant: true, owner: true },
               })
           })()
 
@@ -372,7 +360,6 @@ const logoutUser = async (token: string | undefined) => {
 const getMe = async (user: RequestUser) => {
     const existingUser = await prisma.user.findUnique({
         where: { id: user.userId },
-        include: { tenant: true, owner: true },
         omit: { password: true },
     })
 

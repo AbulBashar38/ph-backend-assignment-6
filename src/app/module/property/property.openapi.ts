@@ -60,9 +60,14 @@ const PropertySchema = z
         isDeleted: z.boolean(),
         deletedAt: z.iso.datetime().nullable(),
         updatedAt: z.iso.datetime(),
-        ownerId: z.string(),
+        ownerId: z.string().meta({ description: "The owner's user ID" }),
         images: z.array(PropertyImageSchema),
-        owner: z.object({ id: z.string(), name: z.string(), email: z.email(), userId: z.string() }),
+        owner: z.object({
+            id: z.string(),
+            name: z.string(),
+            email: z.email(),
+            imageUrl: z.string().nullable(),
+        }),
     })
     .meta({ id: 'Property' })
 
@@ -70,7 +75,7 @@ const PublicPropertySchema = z
     .object({
         ...propertyCoreFields,
         images: z.array(z.object({ id: z.string(), url: z.string() })),
-        owner: z.object({ id: z.string(), name: z.string() }),
+        owner: z.object({ id: z.string(), name: z.string(), imageUrl: z.string().nullable() }),
     })
     .meta({ id: 'PublicProperty' })
 
@@ -138,7 +143,7 @@ registry.registerPath({
     summary: 'Create a property (OWNER for themselves, ADMIN / SUPER_ADMIN for an owner)',
     description:
         '- **OWNER**: created for yourself (`ownerId` may be omitted, or must be your own → else 403).\n' +
-        '- **ADMIN / SUPER_ADMIN**: `ownerId` (the owner profile ID) is **required** (missing → 400, unknown → 404).\n\n' +
+        '- **ADMIN / SUPER_ADMIN**: `ownerId` (the **user ID** of a user with role OWNER) is **required** (missing → 400, not an owner → 404).\n\n' +
         'Creates the listing as `DRAFT`. Then add photos with `POST /property/{id}/images` and publish it with ' +
         "`PATCH /property/{id}/publish`. `status` can't be set here.\n\n" +
         '- `expiresAt` (optional, future ISO date): after it, the listing is taken offline automatically.\n' +
@@ -318,7 +323,7 @@ registry.registerPath({
             ownerId: z
                 .string()
                 .optional()
-                .meta({ description: 'Owner profile ID (admins; owners may only pass their own)' }),
+                .meta({ description: 'Owner user ID (admins; owners may only pass their own)' }),
             isDeleted: z.enum(['true', 'false']).optional(),
         }),
     },

@@ -54,7 +54,7 @@ registry.registerPath({
     tags: [TAG],
     summary: 'List users with search, filters and pagination (ADMIN, SUPER_ADMIN)',
     description:
-        'Returns `data` (users, without passwords, with their Tenant/Owner profile) and `meta` ' +
+        'Returns `data` (users, without passwords) and `meta` ' +
         '(`page`, `limit`, `total`, `totalPages`).\n\n' +
         '- Soft-deleted accounts are hidden unless `isDeleted=true`.\n' +
         '- Filters combine with AND. An invalid filter value (e.g. `role=KING`) → 400.\n' +
@@ -148,7 +148,7 @@ registry.registerPath({
         `${permissionsNote}\n\n` +
         'Send only the fields you want to change (at least one).\n' +
         '- `name`, `phone` for every role (a phone used by another account → 409).\n' +
-        "- The **target account's** role decides the profile fields: TENANT → `occupation`, `gender`; " +
+        "- The **target account's** role decides the role-specific fields: TENANT → `occupation`, `gender`; " +
         "OWNER → `address`. Another role's field → 400.\n" +
         '- `null` clears `occupation`, `gender` or `address`.\n' +
         "- Email, role, status and password can't be changed here (unknown fields → 400). " +
@@ -179,8 +179,8 @@ registry.registerPath({
     summary: 'Delete a user account: soft delete (self or admin)',
     description:
         `${permissionsNote} The \`SUPER_ADMIN\` account can never be deleted.\n\n` +
-        '**Soft delete**: the account is marked deleted (`isDeleted`, `deletedAt`, status `DELETED`) together with ' +
-        'its Tenant/Owner profile; no data is removed. The deleted user is logged out on every device and can no ' +
+        "**Soft delete**: the account is marked deleted (`isDeleted`, `deletedAt`, status `DELETED`), and an owner's " +
+        'properties are archived; no data is removed. The deleted user is logged out on every device and can no ' +
         "longer log in; the email/phone can't be registered again (contact support to restore).\n\n" +
         '- Confirm with **your own** password in `password` (missing → 400, wrong → 401). Also when an admin deletes someone.\n' +
         '- Callers without a password (Google-only accounts) can send `{}`.\n' +

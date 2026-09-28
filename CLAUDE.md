@@ -67,7 +67,10 @@ and every new or changed route is documented in its `x.openapi.ts`.
 - All business logic and DB access is in services. Throw `new AppError(httpStatus.X, 'Message')` from `utils/AppError.ts`.
 - Inside `prisma.$transaction(async (tx) => …)` use **only `tx`**. Payment-gateway calls and emails happen **after** commit.
 - Contended status changes (room, application, payment) use a conditional `updateMany` and check `count === 0` → 409.
-- Ownership: resolve the caller's `Tenant`/`Owner` profile by `userId`, then check that the resource belongs to it. Role checks in routes aren't enough.
+- **One `User` table for every role** (no Tenant/Owner profile tables). Every reference to a person is a **user ID**
+  (`property.ownerId`, later `application.tenantId`…). The database can't tell a tenant from an owner, so services must
+  check the role (e.g. `findActiveOwner`) and ownership (`resource.ownerId === req.user.userId`). Role checks in routes
+  aren't enough.
 - State-changing actions in requirements §19 write an `AuditLog` via `createAuditLog(tx, …)` (`utils/auditLog.ts`), and
   events in §17 create a `Notification`, both in the same transaction. Reference: `PropertyServices`.
 - **Never hard-delete. Every delete is a soft delete**, in every module and every case: set `isDeleted: true` + `deletedAt`

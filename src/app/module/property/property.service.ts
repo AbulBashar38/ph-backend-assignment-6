@@ -5,6 +5,7 @@ import {
     AuditAction,
     PropertyStatus,
     type PropertyType,
+    Role,
     UserStatus,
 } from '../../../generated/prisma/enums'
 import type { PropertyWhereInput } from '../../../generated/prisma/models'
@@ -35,7 +36,7 @@ const imagesInOrder = { orderBy: { createdAt: 'asc' } } as const
 // Full view for the owner and admins
 const propertyDetailsInclude = {
     images: imagesInOrder,
-    owner: { select: { id: true, name: true, email: true, userId: true } },
+    owner: { select: { id: true, name: true, email: true, imageUrl: true } },
 } satisfies Prisma.PropertyInclude
 
 // Public view: no moderation notes, no owner contact details
@@ -53,7 +54,7 @@ const publicPropertySelect = {
     publishedAt: true,
     createdAt: true,
     images: { select: { id: true, url: true }, ...imagesInOrder },
-    owner: { select: { id: true, name: true } },
+    owner: { select: { id: true, name: true, imageUrl: true } },
 } satisfies Prisma.PropertySelect
 
 // A listing is public only if it's published, not expired, and its owner account is active
@@ -61,16 +62,20 @@ const publiclyVisible = (): PropertyWhereInput => ({
     status: PropertyStatus.PUBLISHED,
     isDeleted: false,
     OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-    owner: { isDeleted: false, user: { status: UserStatus.ACTIVE, isDeleted: false } },
+    owner: { isDeleted: false, status: UserStatus.ACTIVE },
 })
 
 // ---------- helpers ----------
 
-const getOwnerProfile = async (userId: string) => {
-    const owner = await prisma.owner.findUnique({ where: { userId } })
+// An owner is a live user with role OWNER (there is no separate owner table)
+const findActiveOwner = async (userId: string) => {
+    const owner = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, isDeleted: true },
+    })
 
-    if (!owner || owner.isDeleted) {
-        throw new AppError(httpStatus.NOT_FOUND, 'Owner Profile Not Found')
+    if (!owner || owner.isDeleted || owner.role !== Role.OWNER) {
+        return null
     }
 
     return owner
@@ -81,10 +86,6 @@ const getOwnerProfile = async (userId: string) => {
  * the owner of the property, or any ADMIN / SUPER_ADMIN (admins can do everything with properties).
  */
 const findManageableProperty = async (actor: RequestUser, propertyId: string) => {
-    const isAdminActor = isAdminRole(actor.role)
-    // Admins have no owner profile, so only owners are looked up
-    const owner = isAdminActor ? null : await getOwnerProfile(actor.userId)
-
     const property = await prisma.property.findFirst({
         where: { id: propertyId, isDeleted: false },
         include: { images: imagesInOrder },
@@ -94,7 +95,7 @@ const findManageableProperty = async (actor: RequestUser, propertyId: string) =>
         throw new AppError(httpStatus.NOT_FOUND, 'Property Not Found')
     }
 
-    if (!isAdminActor && property.ownerId !== owner?.id) {
+    if (!isAdminRole(actor.role) && property.ownerId !== actor.userId) {
         throw new AppError(httpStatus.FORBIDDEN, 'You Can Only Manage Your Own Properties')
     }
 
@@ -162,16 +163,17 @@ const paginate = async <TArgs extends Prisma.PropertyFindManyArgs>(
 
 // ---------- create & read ----------
 
-// Resolves which owner a new property belongs to: an admin must name one, an owner creates for themselves
-const resolveOwnerForCreate = async (actor: RequestUser, requestedOwnerId: string | undefined) => {
+// Resolves which owner (user id) a new property belongs to: an admin must name one, an owner creates for themselves
+const resolveOwnerIdForCreate = async (
+    actor: RequestUser,
+    requestedOwnerId: string | undefined,
+) => {
     if (!isAdminRole(actor.role)) {
-        const owner = await getOwnerProfile(actor.userId)
-
-        if (requestedOwnerId && requestedOwnerId !== owner.id) {
+        if (requestedOwnerId && requestedOwnerId !== actor.userId) {
             throw new AppError(httpStatus.FORBIDDEN, 'You Can Only Create Properties For Yourself')
         }
 
-        return owner
+        return actor.userId
     }
 
     if (!requestedOwnerId) {
@@ -181,25 +183,23 @@ const resolveOwnerForCreate = async (actor: RequestUser, requestedOwnerId: strin
         )
     }
 
-    const owner = await prisma.owner.findUnique({
-        where: { id: requestedOwnerId },
-        include: { user: { select: { status: true, isDeleted: true } } },
-    })
-
-    if (!owner || owner.isDeleted || owner.user.isDeleted) {
-        throw new AppError(httpStatus.NOT_FOUND, 'Owner Not Found')
+    if (!(await findActiveOwner(requestedOwnerId))) {
+        throw new AppError(
+            httpStatus.NOT_FOUND,
+            'Owner Not Found (ownerId Must Be The User ID Of An Owner)',
+        )
     }
 
-    return owner
+    return requestedOwnerId
 }
 
 const createProperty = async (actor: RequestUser, payload: ICreatePropertyPayload) => {
     const { ownerId: requestedOwnerId, ...propertyData } = payload
-    const owner = await resolveOwnerForCreate(actor, requestedOwnerId)
+    const ownerId = await resolveOwnerIdForCreate(actor, requestedOwnerId)
 
     const property = await prisma.$transaction(async (tx) => {
         const created = await tx.property.create({
-            data: { ...propertyData, ownerId: owner.id, status: PropertyStatus.DRAFT },
+            data: { ...propertyData, ownerId, status: PropertyStatus.DRAFT },
         })
 
         await createAuditLog(tx, {
@@ -227,13 +227,11 @@ const getProperties = async (actor: RequestUser, query: IQuery) => {
     let ownerId = filters.ownerId
 
     if (!isAdminRole(actor.role)) {
-        const owner = await getOwnerProfile(actor.userId)
-
-        if (ownerId && ownerId !== owner.id) {
+        if (ownerId && ownerId !== actor.userId) {
             throw new AppError(httpStatus.FORBIDDEN, 'You Can Only List Your Own Properties')
         }
 
-        ownerId = owner.id
+        ownerId = actor.userId
     }
 
     const showDeleted = filters.isDeleted ?? filters.status === PropertyStatus.ARCHIVED
@@ -285,7 +283,7 @@ const getPropertyById = async (actor: RequestUser, propertyId: string) => {
         throw new AppError(httpStatus.NOT_FOUND, 'Property Not Found')
     }
 
-    if (!isAdminRole(actor.role) && property.owner.userId !== actor.userId) {
+    if (!isAdminRole(actor.role) && property.ownerId !== actor.userId) {
         throw new AppError(httpStatus.FORBIDDEN, 'You Can Only View Your Own Properties')
     }
 

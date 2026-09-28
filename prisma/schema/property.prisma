@@ -24,8 +24,9 @@ model Property {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  // The owner's USER id (a user with role OWNER)
   ownerId String
-  owner   Owner  @relation(fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   images PropertyImage[]
 

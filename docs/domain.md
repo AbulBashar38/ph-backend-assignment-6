@@ -8,12 +8,13 @@ the requirements win. Update this file when they do.
 One `.prisma` file per model in `prisma/schema/`, styled like the example (`@@map("snake_plural")`, `createdAt`/`updatedAt`,
 `isDeleted`/`deletedAt` where soft-deletable, relations with `onDelete: Cascade, onUpdate: Cascade` only for true children).
 
+**Every `tenantId` / `ownerId` below is a `User.id`** (a user with role TENANT / OWNER). The database can't enforce the
+role, so services check it (e.g. `findActiveOwner` in `property.service.ts`).
+
 | Model | Key fields | Notes |
 |---|---|---|
-| `User` | see [auth.md](auth.md#roles-status-user-model) | One table for all roles |
-| `Tenant` | userId @unique, name, email @unique, occupation?, gender?, isDeleted | Role profile, like the example's `Patient` |
-| `Owner` | userId @unique, name, email @unique, address?, isDeleted | Role profile, like the example's `Doctor` |
-| `RoommateProfile` | tenantId @unique, age, gender, occupation, budgetMin, budgetMax, preferredCity, preferredArea, moveInDate, smoking, pets, sleepSchedule, lifestyle String[], genderPreference, isActive | `isActive` = "roommate search enabled" |
+| `User` | see [auth.md](auth.md#roles-status-user-model); plus `gender?`, `occupation?` (tenants), `address?` (owners) | **One table for all roles, no Tenant/Owner profile tables** |
+| `RoommateProfile` | tenantId @unique, age, budgetMin, budgetMax, preferredCity, preferredArea, moveInDate, smoking, pets, sleepSchedule, lifestyle String[], genderPreference, isActive | `isActive` = "roommate search enabled". Gender and occupation come from `User` (not duplicated) |
 | `Property` | ownerId, title, description, propertyType, address, city, area, latitude?, longitude?, amenities `Amenity[]`, status, publishedAt?, expiresAt?, moderationNote?, moderatedAt?, isDeleted, deletedAt | **Implemented.** Photos live in `PropertyImage` |
 | `PropertyImage` | propertyId, url, publicId, createdAt | **Implemented.** Max 20 per property; rows are file references, so removing a photo deletes the row (not a soft delete) |
 | `Room` | propertyId, name, roomType, monthlyRent Decimal(10,2), maxOccupants, currentOccupants, amenities String[], images Json?, status, availableFrom, description?, isDeleted | |
@@ -110,7 +111,7 @@ Requirement §24: important records must never disappear. So **nothing is ever h
 **Every "delete" endpoint must:**
 
 1. Set `isDeleted: true` and `deletedAt: new Date()` (plus `status` = `DELETED`/`ARCHIVED` if the model has a status).
-2. Soft-delete dependent profile rows in the **same transaction** (e.g. user → its `Tenant`/`Owner`).
+2. Soft-delete / archive dependent records in the **same transaction** (e.g. a deleted owner → their properties archived).
 3. Be idempotent-safe: an already-deleted record is "not found" (404/401), never deleted twice.
 4. Leave history intact: rentals, payments, applications and audit logs keep pointing at the deleted row.
 5. Write an audit log (`USER_DELETED`, `PROPERTY_ARCHIVED`, …) once the audit module exists.
@@ -148,7 +149,6 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
   never be changed here. Role/status changes will be separate admin actions.
 - `name`, `phone` for every role (phone used by another account → 409). The **target account's** role decides the profile
   fields: TENANT → `occupation`, `gender`; OWNER → `address`. Another role's field → 400. `null` clears an optional field.
-- A new `name` is copied to the `Tenant`/`Owner` profile in the same update. A missing profile row (older accounts) is created.
 - Changing email is not supported (it would need OTP re-verification). The profile image has its own endpoint (Cloudinary).
 
 **Delete (`DELETE /user/:id`), always a soft delete:**
@@ -156,7 +156,7 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
 - The **caller** re-confirms with **their own** password in the body (`{ password }`); an admin uses the admin's password,
   not the target's. Missing → 400, wrong → 401. A stolen access token alone can't delete anything. Callers without a
   password (Google-only) send `{}`.
-- In one transaction: `User` → `isDeleted`, `deletedAt`, `status: DELETED`; its `Tenant`/`Owner` → `isDeleted`, `deletedAt`.
+- In one transaction: `User` → `isDeleted`, `deletedAt`, `status: DELETED`; an owner's properties → `ARCHIVED`.
 - After commit: revoke every refresh token **of the deleted user** (logged out on all devices). Their current access token
   stops working at once, because `auth()` rejects deleted users. Auth cookies are cleared only when you delete **yourself**;
   an admin deleting someone stays logged in.

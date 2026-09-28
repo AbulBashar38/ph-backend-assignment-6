@@ -27,7 +27,8 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 
 ## Phase 1: Auth (example `module/auth/`)
 
-- [x] Prisma: `User` (+ `authProvider`, `googleId`, `imageUrl`, `imagePublicId`, `phone`), `Tenant`, `Owner`, enums
+- [x] Prisma: `User` (+ `authProvider`, `googleId`, `imageUrl`, `imagePublicId`, `phone`, `gender`, `occupation`, `address`), enums
+- [x] Merged the Tenant/Owner profile tables into `User` (migration `merge_profiles_into_users` copies the data)
 - [x] `utils/sendEmail.ts` + templates `registration-user-otp`, `welcome-email`, `forgot-password`, `reset-password-success`
 - [x] Register (pending data in Redis) → verify-email → user + profile created; resend-otp with cooldown; OTP attempt limit
 - [x] Login, refresh-token (Redis-stored, rotated), logout, me

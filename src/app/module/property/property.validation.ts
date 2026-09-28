@@ -40,7 +40,7 @@ export const CreatePropertyValidationZodSchema = z
         longitude: propertyFields.longitude.optional(),
         amenities: propertyFields.amenities.default([]),
         expiresAt: propertyFields.expiresAt.optional(),
-        // Admins create on behalf of an owner (required for them); owners may omit it or pass their own
+        // User ID of the owner. Admins create on behalf of an owner (required for them); owners may omit it or pass their own
         ownerId: z
             .string('Owner ID Must Be A String')
             .trim()

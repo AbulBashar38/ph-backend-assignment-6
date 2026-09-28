@@ -12,13 +12,10 @@ with the fixes and additions below.
 - `UserStatus`: `ACTIVE`, `BLOCKED` (= "suspended" in the requirements), `DELETED`.
 - `AuthProvider`: `CREDENTIAL`, `GOOGLE`.
 - `User` fields (as in the example): `name, email @unique, phone? @unique, password?, googleId? @unique, authProvider,
-  emailVerified, role, status, needPasswordChange, imageUrl, imagePublicId, isDeleted, deletedAt`.
-- Role profile, 1–1 with `User` (like `Patient`/`Doctor`): `Tenant` (`occupation?`, `gender?`) or `Owner` (`address?`), both with
-  `userId @unique`, `name`, `email`. The phone number lives on `User.phone`.
-  It's created in the same nested `prisma.user.create` as the user.
-
-## Tokens (same as the example, plus revocation)
-
+  emailVerified, role, status, needPasswordChange, imageUrl, imagePublicId, gender?, occupation?, address?, isDeleted, deletedAt`.
+- **No separate profile tables:** role-specific details are optional columns on `User`: `gender`, `occupation` (tenants)
+  and `address` (owners). `RoommateProfile` (planned) is the only extra per-user table.
+  Decision: a single table avoids duplicated name/email, two IDs per person, and extra joins (see docs/domain.md).
 - JWT payload: `{ userId, name, email, role }` (`RequestUser`). Created with `jwtUtils.createToken`.
 - Cookies `accessToken` / `refreshToken` are set by `utils/setAuthCookie.ts` (`secure` in production, `sameSite: 'none'`
   only when secure, otherwise `'lax'`), and **also** returned in `data`, like the example.
@@ -78,7 +75,7 @@ POST /auth/google { idToken, role?: TENANT|OWNER }      # role only applies when
   → find the user by googleId first (survives a Google email change), then by email
   → deleted → 403; BLOCKED → 403; email already linked to a *different* googleId → 409
   → existing user → set googleId (link), keep role/authProvider; use the Google picture only if imageUrl is empty → 200
-  → no user → create User(authProvider GOOGLE, emailVerified, password null, imageUrl = picture) + Tenant/Owner
+  → no user → create User(authProvider GOOGLE, emailVerified, password null, imageUrl = picture, role)
     profile; name falls back to the email's local part → welcome email → 201
   → delete any pending email/password signup for that email (user-registration-data:{email})
   → tokens + cookies; response data { accessToken, refreshToken, user, isNewUser }

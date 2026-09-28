@@ -18,7 +18,6 @@ import { GetAllUsersQueryZodSchema } from './user.validation'
 const findActiveUser = async (userId: string) => {
     const user = await prisma.user.findUnique({
         where: { id: userId },
-        include: { tenant: true, owner: true },
     })
 
     if (!user || user.isDeleted) {
@@ -86,7 +85,6 @@ const getAllUsers = async (query: IQuery) => {
             take: limit,
             orderBy: { [sortBy]: sortOrder },
             omit: { password: true },
-            include: { tenant: true, owner: true },
         }),
         prisma.user.count({ where }),
     ])
@@ -105,7 +103,6 @@ const getUserById = async (actor: RequestUser, userId: string) => {
     const user = await prisma.user.findUnique({
         where: { id: userId },
         omit: { password: true },
-        include: { tenant: true, owner: true },
     })
 
     if (!user || (user.isDeleted && !isAdmin)) {
@@ -125,12 +122,12 @@ const updateUser = async (actor: RequestUser, userId: string, payload: IUpdateUs
     if ((occupation !== undefined || gender !== undefined) && user.role !== Role.TENANT) {
         throw new AppError(
             httpStatus.BAD_REQUEST,
-            'Occupation And Gender Can Only Be Set On A Tenant Profile',
+            'Occupation And Gender Can Only Be Set For Tenants',
         )
     }
 
     if (address !== undefined && user.role !== Role.OWNER) {
-        throw new AppError(httpStatus.BAD_REQUEST, 'Address Can Only Be Set On An Owner Profile')
+        throw new AppError(httpStatus.BAD_REQUEST, 'Address Can Only Be Set For Owners')
     }
 
     if (phone && phone !== user.phone) {
@@ -144,44 +141,20 @@ const updateUser = async (actor: RequestUser, userId: string, payload: IUpdateUs
         }
     }
 
-    // The profile keeps a copy of the name, so both are updated together.
-    // Upsert covers older accounts created before profiles existed.
-    const profileName = name ?? user.name
-
     const isSelf = actor.userId === user.id
     const currentValues = {
         name: user.name,
         phone: user.phone,
-        occupation: user.tenant?.occupation,
-        gender: user.tenant?.gender,
-        address: user.owner?.address,
+        occupation: user.occupation,
+        gender: user.gender,
+        address: user.address,
     }
 
     return prisma.$transaction(async (tx) => {
         const updatedUser = await tx.user.update({
             where: { id: user.id },
-            data: {
-                name,
-                phone,
-                ...(user.role === Role.TENANT && {
-                    tenant: {
-                        upsert: {
-                            create: { name: profileName, email: user.email, occupation, gender },
-                            update: { name, occupation, gender },
-                        },
-                    },
-                }),
-                ...(user.role === Role.OWNER && {
-                    owner: {
-                        upsert: {
-                            create: { name: profileName, email: user.email, address },
-                            update: { name, address },
-                        },
-                    },
-                }),
-            },
+            data: { name, phone, occupation, gender, address },
             omit: { password: true },
-            include: { tenant: true, owner: true },
         })
 
         // Requirement §19: log admins changing someone else's account
@@ -205,10 +178,7 @@ const updateUser = async (actor: RequestUser, userId: string, payload: IUpdateUs
     })
 }
 
-const userWithProfile = {
-    omit: { password: true },
-    include: { tenant: true, owner: true },
-} as const
+const withoutPassword = { omit: { password: true } } as const
 
 // Upload or replace the profile picture. Same who-may-manage-whom rules as updating the profile.
 const uploadProfileImage = async (
@@ -235,7 +205,7 @@ const uploadProfileImage = async (
         prisma.user.update({
             where: { id: user.id },
             data: { imageUrl: uploaded.url, imagePublicId: uploaded.publicId },
-            ...userWithProfile,
+            ...withoutPassword,
         }),
     )
 
@@ -252,7 +222,7 @@ const removeProfileImage = async (actor: RequestUser, userId: string) => {
     const updatedUser = await prisma.user.update({
         where: { id: user.id },
         data: { imageUrl: null, imagePublicId: null },
-        ...userWithProfile,
+        ...withoutPassword,
     })
 
     await cloudinaryUpload.deleteFiles([user.imagePublicId])
@@ -295,19 +265,10 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
             where: { id: user.id },
             data: { isDeleted: true, deletedAt, status: UserStatus.DELETED },
         })
-        await tx.tenant.updateMany({
-            where: { userId: user.id },
-            data: { isDeleted: true, deletedAt },
-        })
-        await tx.owner.updateMany({
-            where: { userId: user.id },
-            data: { isDeleted: true, deletedAt },
-        })
-
         // A deleted owner's listings leave the site too (kept as ARCHIVED for history)
-        if (user.owner) {
+        if (user.role === Role.OWNER) {
             await tx.property.updateMany({
-                where: { ownerId: user.owner.id, isDeleted: false },
+                where: { ownerId: user.id, isDeleted: false },
                 data: { isDeleted: true, deletedAt, status: PropertyStatus.ARCHIVED },
             })
         }

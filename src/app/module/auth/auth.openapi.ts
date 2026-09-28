@@ -83,7 +83,7 @@ registry.registerPath({
     tags: [TAG],
     summary: 'Verify the registration OTP and create the account (public)',
     description:
-        'Creates the user and its Tenant/Owner profile, sets auth cookies and returns the tokens. ' +
+        'Creates the user, sets auth cookies and returns the tokens. ' +
         'After 5 wrong OTPs the code is invalidated (429).',
     security: [],
     request: {
@@ -143,7 +143,7 @@ registry.registerPath({
         'Send the Google **ID token** (a JWT) that the frontend gets from Google Identity Services, ' +
         "not an access token. Its audience must be this API's `GOOGLE_CLIENT_ID`.\n\n" +
         '- Existing account (matched by Google ID, then email) → logged in (200); an email/password account gets Google linked.\n' +
-        '- No account → a new one is created with `role` (TENANT by default) and a Tenant/Owner profile (201).\n' +
+        '- No account → a new one is created with `role` (TENANT by default) (201).\n' +
         '- The Google email must be verified by Google (403 otherwise).\n\n' +
         'Testing without a frontend: in the Google OAuth 2.0 Playground, use your own OAuth credentials, ' +
         'authorize the `openid email profile` scopes, exchange the code, and copy the `id_token`.',

@@ -59,8 +59,8 @@ These are this project's conventions. Most came from the example; some are adjus
   Read `req.user!`, `req.params.xId as string`, `req.query` (as `IQuery`), and `req.body`.
 - **Services:** take `(payload, user)` or `(query, user)` or `(id, user)`. Throw `new AppError(httpStatus.X, 'Message')`.
   List functions return `{ data, meta: { page, limit, total, totalPages } }`.
-- **Role profiles:** `User` 1–1 with a role profile (`Patient`/`Doctor` in the example → `Tenant`/`Owner` here).
-  A service resolves the profile first: `prisma.tenant.findUnique({ where: { userId: user.userId } })`, then 404 if missing.
+- **Role profiles: deliberately NOT copied.** The example has `User` 1–1 `Patient`/`Doctor` tables (a Doctor has many fields of
+  its own). Our tenants and owners differ by only 3 optional fields, so they live on `User`; references are user IDs.
 - **List queries:** get `{ page, limit, skip, sortBy, sortOrder }` from `utils/paginationHelper.ts` (the example repeats these
   5 lines in every service), then build `andConditions: XWhereInput[]`
   (type imported from `generated/prisma/models`), `searchTerm` → `OR` of `contains` + `mode: 'insensitive'`, one `if` per
