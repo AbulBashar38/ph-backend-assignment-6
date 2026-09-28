@@ -6,6 +6,8 @@ with the fixes and additions below.
 ## Roles, status, user model
 
 - `Role`: `SUPER_ADMIN`, `ADMIN`, `OWNER`, `TENANT`. Users register as `TENANT` or `OWNER`.
+  Wherever docs or requirements say **admin**, it means `ADMIN` **and** `SUPER_ADMIN` (`ADMIN_ROLES` in `utils/roles.ts`).
+  `SUPER_ADMIN` holds every permission, including ones plain admins don't have (managing other admins).
   `SUPER_ADMIN` is seeded from env (`utils/seed.ts`, as in the example), and admins are created by the super admin.
 - `UserStatus`: `ACTIVE`, `BLOCKED` (= "suspended" in the requirements), `DELETED`.
 - `AuthProvider`: `CREDENTIAL`, `GOOGLE`.

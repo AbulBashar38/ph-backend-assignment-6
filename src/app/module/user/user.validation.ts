@@ -1,5 +1,5 @@
 import z from 'zod'
-import { Gender } from '../../../generated/prisma/enums'
+import { AuthProvider, Gender, Role, UserStatus } from '../../../generated/prisma/enums'
 import { nameSchema, phoneSchema } from '../../utils/commonZodSchemas'
 
 // `.strict()` rejects fields that can't be changed here (email, role, status, password…)
@@ -33,4 +33,21 @@ export const UpdateUserValidationZodSchema = z
 export const DeleteUserValidationZodSchema = z.object({
     // The CALLER's own password (re-confirms identity). Callers without a password (Google-only) can omit it
     password: z.string('Password Must Be A String').min(1, 'Password Is Required').optional(),
+})
+
+// Query-string filters for GET /user (page/limit/sort are handled by paginationHelper).
+// Query values are strings, so booleans arrive as 'true' / 'false'.
+const booleanQuerySchema = (field: string) =>
+    z
+        .enum(['true', 'false'], `${field} Must Be true Or false`)
+        .transform((value) => value === 'true')
+
+export const GetAllUsersQueryZodSchema = z.object({
+    searchTerm: z.string().trim().max(100, 'Search Term Is Too Long').optional(),
+    role: z.enum(Role, 'Role Must Be SUPER_ADMIN, ADMIN, OWNER Or TENANT').optional(),
+    status: z.enum(UserStatus, 'Status Must Be ACTIVE, BLOCKED Or DELETED').optional(),
+    authProvider: z.enum(AuthProvider, 'Auth Provider Must Be GOOGLE Or CREDENTIAL').optional(),
+    emailVerified: booleanQuerySchema('emailVerified').optional(),
+    // Default false: soft-deleted accounts are only listed when explicitly asked for
+    isDeleted: booleanQuerySchema('isDeleted').optional(),
 })

@@ -56,9 +56,14 @@ and every new or changed route is documented in its `x.openapi.ts`.
 
 ## Must-follow rules (details in the docs)
 
-- Module = `x.route.ts` / `x.controller.ts` / `x.service.ts` / `x.interface.ts` / `x.validation.ts` (+ `x.openapi.ts`).
+- Module = `x.route.ts` / `x.controller.ts` / `x.service.ts` / `x.interface.ts` / `x.validation.ts` (+ `x.openapi.ts`,
+  and `x.constant.ts` for searchable/sortable fields). List endpoints copy `UserServices.getAllUsers`
+  ([docs/api-conventions.md → Lists](docs/api-conventions.md#lists-search--filter--sort--paginate)).
   Exports: `XRoutes`, `XController`, `XServices` (plural; auth keeps `AuthService`). Mount each in `app.ts`
   at `/api/v1/<singular>`.
+- **"Admin" always means `ADMIN` and `SUPER_ADMIN`.** `SUPER_ADMIN` has every permission an `ADMIN` has, plus more
+  (e.g. managing other admins). Guard admin routes with `auth(...ADMIN_ROLES)` and check with `isAdminRole()`
+  (`utils/roles.ts`); never write `auth(Role.ADMIN)` alone. The only thing no one can do is delete the SUPER_ADMIN account.
 - All business logic and DB access is in services. Throw `new AppError(httpStatus.X, 'Message')` from `utils/AppError.ts`.
 - Inside `prisma.$transaction(async (tx) => …)` use **only `tx`**. Payment-gateway calls and emails happen **after** commit.
 - Contended status changes (room, application, payment) use a conditional `updateMany` and check `count === 0` → 409.

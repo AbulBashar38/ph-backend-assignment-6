@@ -3,11 +3,18 @@ import {
     authSecurity,
     errorResponses,
     jsonBody,
+    paginatedResponse,
+    paginationQueryParams,
     registry,
     successResponse,
 } from '../../docs/registry'
 import { UserSchema } from '../../docs/schemas'
-import { DeleteUserValidationZodSchema, UpdateUserValidationZodSchema } from './user.validation'
+import { USER_SEARCHABLE_FIELDS, USER_SORTABLE_FIELDS } from './user.constant'
+import {
+    DeleteUserValidationZodSchema,
+    GetAllUsersQueryZodSchema,
+    UpdateUserValidationZodSchema,
+} from './user.validation'
 
 const TAG = 'User'
 
@@ -16,6 +23,66 @@ const UserIdParams = z.object({
         description: 'User ID. Your own ID is `data.id` from `GET /auth/me`.',
         example: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b',
     }),
+})
+
+// Docs view of the query: the validated filters (as strings, like they arrive) + standard pagination params
+const GetAllUsersQueryDocsSchema = z.object({
+    searchTerm: z
+        .string()
+        .optional()
+        .meta({
+            description: `Case-insensitive match on ${USER_SEARCHABLE_FIELDS.join(', ')}`,
+            example: 'rahim',
+        }),
+    role: GetAllUsersQueryZodSchema.shape.role,
+    status: GetAllUsersQueryZodSchema.shape.status,
+    authProvider: GetAllUsersQueryZodSchema.shape.authProvider,
+    emailVerified: z.enum(['true', 'false']).optional(),
+    isDeleted: z
+        .enum(['true', 'false'])
+        .optional()
+        .meta({ description: 'Default `false`. `true` lists only soft-deleted accounts.' }),
+    ...paginationQueryParams(USER_SORTABLE_FIELDS),
+})
+
+registry.registerPath({
+    method: 'get',
+    path: '/user',
+    tags: [TAG],
+    summary: 'List users with search, filters and pagination (ADMIN, SUPER_ADMIN)',
+    description:
+        'Returns `data` (users, without passwords, with their Tenant/Owner profile) and `meta` ' +
+        '(`page`, `limit`, `total`, `totalPages`).\n\n' +
+        '- Soft-deleted accounts are hidden unless `isDeleted=true`.\n' +
+        '- Filters combine with AND. An invalid filter value (e.g. `role=KING`) → 400.\n' +
+        '- Invalid `page`/`limit`/`sortBy` fall back to the defaults instead of failing.',
+    security: authSecurity,
+    request: { query: GetAllUsersQueryDocsSchema },
+    responses: {
+        200: paginatedResponse('Users Retrieved Successfully', UserSchema),
+        ...errorResponses(400, 401, 403),
+    },
+})
+
+registry.registerPath({
+    method: 'get',
+    path: '/user/{id}',
+    tags: [TAG],
+    summary: 'Get user details (self or admin)',
+    description:
+        '- Any user → their **own** account (`id` = `data.id` from `GET /auth/me`).\n' +
+        '- `ADMIN` / `SUPER_ADMIN` → any account, **including soft-deleted ones** (for support and restoring).\n' +
+        'Anyone else → 403.',
+    security: authSecurity,
+    request: {
+        params: z.object({
+            id: z.string().meta({ example: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }),
+        }),
+    },
+    responses: {
+        200: successResponse('User Retrieved Successfully', UserSchema),
+        ...errorResponses(401, 403, 404),
+    },
 })
 
 const permissionsNote =

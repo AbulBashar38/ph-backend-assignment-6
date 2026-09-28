@@ -1,13 +1,17 @@
 import bcrypt from 'bcryptjs'
 import httpStatus from 'http-status'
 import { Role, UserStatus } from '../../../generated/prisma/enums'
+import type { UserWhereInput } from '../../../generated/prisma/models'
+import type { IQuery } from '../../interfaces'
 import { prisma } from '../../lib/prisma'
 import type { RequestUser } from '../../middleware/checkAuth'
 import { AppError } from '../../utils/AppError'
 import { authTokenUtils } from '../../utils/authTokens'
+import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
+import { isAdminRole } from '../../utils/roles'
+import { USER_SEARCHABLE_FIELDS, USER_SORTABLE_FIELDS } from './user.constant'
 import type { IDeleteUserPayload, IUpdateUserPayload } from './user.interface'
-
-const isAdminRole = (role: Role) => role === Role.ADMIN || role === Role.SUPER_ADMIN
+import { GetAllUsersQueryZodSchema } from './user.validation'
 
 const findActiveUser = async (userId: string) => {
     const user = await prisma.user.findUnique({
@@ -41,6 +45,72 @@ const assertCanManageUser = (actor: RequestUser, target: { id: string; role: Rol
                 : 'You Can Only Manage Your Own Account',
         )
     }
+}
+
+// ADMIN / SUPER_ADMIN only (enforced by the route). Admins may read every account, including other admins.
+const getAllUsers = async (query: IQuery) => {
+    const { page, limit, skip, sortBy, sortOrder } = paginationHelper(
+        query,
+        USER_SORTABLE_FIELDS,
+        'createdAt',
+    )
+    // Invalid filter values (e.g. role=KING) → ZodError → 400 from the global error handler
+    const filters = GetAllUsersQueryZodSchema.parse(query)
+
+    const andConditions: UserWhereInput[] = [{ isDeleted: filters.isDeleted ?? false }]
+
+    if (filters.searchTerm) {
+        andConditions.push({
+            OR: USER_SEARCHABLE_FIELDS.map((field) => ({
+                [field]: { contains: filters.searchTerm, mode: 'insensitive' },
+            })),
+        })
+    }
+
+    if (filters.role) andConditions.push({ role: filters.role })
+    if (filters.status) andConditions.push({ status: filters.status })
+    if (filters.authProvider) andConditions.push({ authProvider: filters.authProvider })
+    if (filters.emailVerified !== undefined) {
+        andConditions.push({ emailVerified: filters.emailVerified })
+    }
+
+    const where: UserWhereInput = { AND: andConditions }
+
+    // One transaction so the page and the total come from the same snapshot
+    const [users, total] = await prisma.$transaction([
+        prisma.user.findMany({
+            where,
+            skip,
+            take: limit,
+            orderBy: { [sortBy]: sortOrder },
+            omit: { password: true },
+            include: { tenant: true, owner: true },
+        }),
+        prisma.user.count({ where }),
+    ])
+
+    return { data: users, meta: buildPaginationMeta(page, limit, total) }
+}
+
+// Self, or any admin. Admins can also open soft-deleted accounts (for support/restore)
+const getUserById = async (actor: RequestUser, userId: string) => {
+    const isAdmin = isAdminRole(actor.role)
+
+    if (!isAdmin && actor.userId !== userId) {
+        throw new AppError(httpStatus.FORBIDDEN, 'You Can Only View Your Own Account')
+    }
+
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        omit: { password: true },
+        include: { tenant: true, owner: true },
+    })
+
+    if (!user || (user.isDeleted && !isAdmin)) {
+        throw new AppError(httpStatus.NOT_FOUND, 'User Not Found')
+    }
+
+    return user
 }
 
 const updateUser = async (actor: RequestUser, userId: string, payload: IUpdateUserPayload) => {
@@ -159,6 +229,8 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
 }
 
 export const UserServices = {
+    getAllUsers,
+    getUserById,
     updateUser,
     deleteUser,
 }

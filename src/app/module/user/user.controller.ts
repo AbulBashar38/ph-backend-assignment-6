@@ -1,10 +1,34 @@
 import type { Request, Response } from 'express'
 import httpStatus from 'http-status'
+import type { IQuery } from '../../interfaces'
 import type { RequestUser } from '../../middleware/checkAuth'
 import { catchAsync } from '../../utils/catchAsync'
 import { sendResponse } from '../../utils/sendResponse'
 import { clearAuthCookies } from '../../utils/setAuthCookie'
 import { UserServices } from './user.service'
+
+const getAllUsers = catchAsync(async (req: Request, res: Response) => {
+    const { data, meta } = await UserServices.getAllUsers(req.query as IQuery)
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Users Retrieved Successfully',
+        data,
+        meta,
+    })
+})
+
+const getUserById = catchAsync(async (req: Request, res: Response) => {
+    const result = await UserServices.getUserById(req.user as RequestUser, req.params.id as string)
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'User Retrieved Successfully',
+        data: result,
+    })
+})
 
 const updateUser = catchAsync(async (req: Request, res: Response) => {
     const result = await UserServices.updateUser(
@@ -42,6 +66,8 @@ const deleteUser = catchAsync(async (req: Request, res: Response) => {
 })
 
 export const UserController = {
+    getAllUsers,
+    getUserById,
     updateUser,
     deleteUser,
 }

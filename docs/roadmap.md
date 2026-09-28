@@ -9,7 +9,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
       the DB name, and the `package.json` name/description
 - [x] Shared infrastructure for auth: `utils/AppError.ts`, `middleware/validateRequest.ts`, `lib/redis.ts`, `lib/nodemailer.ts`,
       `utils/authTokens.ts`, `utils/otp.ts`, `utils/sendEmail.ts`, `utils/setAuthCookie.ts`
-- [ ] Remaining infrastructure: `interfaces/index.ts` (`IQuery`), `utils/paginationHelper.ts`, `lib/cloudinary.ts`, `lib/multer.ts`,
+- [ ] Remaining infrastructure: `lib/cloudinary.ts`, `lib/multer.ts`,
       `lib/cron.ts` (`lib/googleAuth.ts` done)
 - [x] `config/index.ts` + `.env.example` (placeholders) for DB, JWT, super admin, Redis, SMTP, Swagger
 - [ ] Add env vars as features land: Cloudinary, Stripe, `APPLICATION_EXPIRY_DAYS` (Google done)
@@ -39,6 +39,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 
 - [x] User: update profile, self or admin (`PATCH /user/:id`)
 - [x] User: delete account, soft delete, self or admin (`DELETE /user/:id`)
+- [x] User: list with search/filter/sort/pagination, admins only (`GET /user`); details, self or admin (`GET /user/:id`)
 - [ ] User: profile image (example `uploadProfileImage`)
 - [ ] Account deletion side effects once rentals/properties/applications exist (see docs/domain.md → Account deletion)
 - [ ] `utils/uploadToCloudinary.ts` + the image filter in `lib/multer.ts`

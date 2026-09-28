@@ -102,6 +102,16 @@ Requirement §24: important records must never disappear. So **nothing is ever h
 **Every read of live data** filters `isDeleted: false` (lists, search, detail, ownership checks, login, `auth()`).
 Unique fields (email, phone) stay on deleted rows, so they can't be reused by a new signup; restoring is an admin action.
 
+### Reading users (`GET /api/v1/user`, `GET /api/v1/user/:id`), implemented in `UserServices`
+
+- **List** (`GET /user`): `ADMIN` / `SUPER_ADMIN` only (route guard `auth(Role.ADMIN, Role.SUPER_ADMIN)`). Admins can see
+  every account, including other admins. Search `searchTerm` (name, email, phone); filters `role`, `status`,
+  `authProvider`, `emailVerified`; sort `createdAt | updatedAt | name | email`; soft-deleted hidden unless `isDeleted=true`.
+- **Details** (`GET /user/:id`): the user themselves, or any admin. Admins can also open soft-deleted accounts (support,
+  restore); for everyone else a deleted account is 404. Anyone else → 403.
+- Reading is broader than writing on purpose: an ADMIN may **view** another admin but not update or delete them.
+- Passwords are never returned (`omit: { password: true }`).
+
 ### User update & delete (`PATCH` / `DELETE /api/v1/user/:id`), implemented in `UserServices`
 
 **Who may manage whose account** (`assertCanManageUser`):

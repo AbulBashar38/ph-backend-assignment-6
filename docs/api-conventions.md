@@ -43,27 +43,49 @@ Keep the example's shape and Prisma error mapping, but fix its two bugs (see [ex
 - Never spread `req.body` into Prisma `data` for fields a client must not set (`status`, `ownerId`, `role`, `amount`).
   The Zod schema simply doesn't include them.
 
-## Lists: search / filter / sort / paginate (idea from the example's `getAllDoctors`)
+## Lists: search / filter / sort / paginate
 
-`req.query` is typed as `IQuery` (`src/app/interfaces/index.ts`). The example repeats the pagination math in every
-service. Here it lives in `utils/paginationHelper.ts`, and each list service does this:
+Reference implementation: `UserServices.getAllUsers` (`GET /api/v1/user`). Copy its shape for every list endpoint.
 
 ```ts
-const { page, limit, skip, sortBy, sortOrder } = paginationHelper(query, PROPERTY_SORTABLE_FIELDS)
+// x.constant.ts: one source for the service and the Swagger docs
+export const PROPERTY_SEARCHABLE_FIELDS = ['title', 'city', 'area'] as const
+export const PROPERTY_SORTABLE_FIELDS = ['createdAt', 'monthlyRent', 'availableFrom'] as const
 
-const andConditions: PropertyWhereInput[] = [{ isDeleted: false }, { status: PropertyStatus.PUBLISHED }]
-if (query.searchTerm) andConditions.push({ OR: [{ title: { contains: query.searchTerm, mode: 'insensitive' } }, ...] })
-if (query.city) andConditions.push({ city: { equals: query.city, mode: 'insensitive' } })
-if (query.minRent || query.maxRent) andConditions.push({ rooms: { some: { monthlyRent: { gte: ..., lte: ... } } } })
-if (query.amenities) andConditions.push({ amenities: { hasEvery: query.amenities.split(',') } })
+// x.validation.ts: filters only; query values are strings ('true'/'false', enums)
+export const GetAllPropertiesQueryZodSchema = z.object({ searchTerm: ..., city: ..., propertyType: z.enum(PropertyType).optional() })
 
-const data = await prisma.property.findMany({ where: { AND: andConditions }, take: limit, skip, orderBy: { [sortBy]: sortOrder }, select/include })
-const total = await prisma.property.count({ where: { AND: andConditions } })
-return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } }
+// x.service.ts
+const getAllProperties = async (query: IQuery) => {
+    const { page, limit, skip, sortBy, sortOrder } = paginationHelper(query, PROPERTY_SORTABLE_FIELDS, 'createdAt')
+    const filters = GetAllPropertiesQueryZodSchema.parse(query) // bad filter value → ZodError → 400
+
+    const andConditions: PropertyWhereInput[] = [{ isDeleted: false }]
+    if (filters.searchTerm) andConditions.push({ OR: PROPERTY_SEARCHABLE_FIELDS.map((f) => ({ [f]: { contains: filters.searchTerm, mode: 'insensitive' } })) })
+    if (filters.city) andConditions.push({ city: { equals: filters.city, mode: 'insensitive' } })
+
+    const where = { AND: andConditions }
+    const [data, total] = await prisma.$transaction([
+        prisma.property.findMany({ where, skip, take: limit, orderBy: { [sortBy]: sortOrder }, select/include }),
+        prisma.property.count({ where }),
+    ])
+    return { data, meta: buildPaginationMeta(page, limit, total) }
+}
+
+// x.controller.ts
+const { data, meta } = await PropertyServices.getAllProperties(req.query as IQuery)
+sendResponse(res, { statusCode: 200, success: true, message: 'Properties Retrieved Successfully', data, meta })
 ```
 
-`paginationHelper` defaults to page 1, limit 10 (max 100), `createdAt desc`, and only accepts a `sortBy` from the
-allowed list passed to it (unknown fields make Prisma throw).
+- `paginationHelper` (`utils/paginationHelper.ts`): page 1, limit 10 (max 100), `createdAt desc` by default. It's **lenient**:
+  a bad `page`/`limit`/`sortBy` falls back to the default. `sortBy` is only taken from the whitelist (anything else would
+  make Prisma throw).
+- Filters are **strict**: they're parsed with the module's Zod query schema inside the service (Express 5's `req.query` is
+  read-only, so `validateRequest` can't be used for queries). An invalid value (e.g. `role=KING`) → 400.
+- `findMany` + `count` run in one `prisma.$transaction([...])`, so the page and the total come from the same snapshot.
+- Always exclude soft-deleted rows by default; only admin lists may opt in with `isDeleted=true`.
+- Swagger: `request.query` = the filters + `...paginationQueryParams(SORTABLE_FIELDS)`, and the response is
+  `paginatedResponse(description, ItemSchema)` (both in `docs/registry.ts`).
 
 Public property search params: `searchTerm, city, area, propertyType, roomType, minRent, maxRent, occupants, amenities,
 availableFrom, sortBy, sortOrder, page, limit`. Public endpoints use `select` to expose only safe fields
@@ -76,7 +98,8 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
 ```text
 /api/v1/auth          POST /register · /verify-email · /resend-otp · /login · /google · /refresh-token
                       POST /logout · /forgot-password · /reset-password · PATCH /change-password(✱) · GET /me(✱)
-/api/v1/user          PATCH /:id(self, or A per role rules) · DELETE /:id(self, or A per role rules; soft delete;
+/api/v1/user          GET /(A; search/filter/paginate) · GET /:id(self, or A: any account incl. soft-deleted)
+                      PATCH /:id(self, or A per role rules) · DELETE /:id(self, or A per role rules; soft delete;
                       body { password } = caller's own) · PATCH /profile-image(✱, multipart profileImage)
 /api/v1/property      POST /create-property(O, multipart images + data) · GET /my-properties(O) · GET /all-properties(A)
                       GET /public/all-properties🌐 · GET /public/:propertyId🌐

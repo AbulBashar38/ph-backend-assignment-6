@@ -52,6 +52,43 @@ export const successResponse = (description: string, dataSchema: z.ZodType = z.n
     },
 })
 
+export const PaginationMetaSchema = z
+    .object({
+        page: z.number().meta({ example: 1 }),
+        limit: z.number().meta({ example: 10 }),
+        total: z.number().meta({ example: 57 }),
+        totalPages: z.number().meta({ example: 6 }),
+    })
+    .meta({ id: 'PaginationMeta' })
+
+export const paginatedResponse = (description: string, itemSchema: z.ZodType) => ({
+    description,
+    content: {
+        'application/json': {
+            schema: z.object({
+                success: z.literal(true),
+                statusCode: z.number(),
+                message: z.string().meta({ example: description }),
+                data: z.array(itemSchema),
+                meta: PaginationMetaSchema,
+            }),
+        },
+    },
+})
+
+// Standard list query params, spread into each list endpoint's query schema for Swagger
+export const paginationQueryParams = <TField extends string>(
+    sortableFields: readonly [TField, ...TField[]],
+) => ({
+    page: z.string().optional().meta({ description: 'Page number (default 1)', example: '1' }),
+    limit: z
+        .string()
+        .optional()
+        .meta({ description: 'Items per page (default 10, max 100)', example: '10' }),
+    sortBy: z.enum(sortableFields).optional().meta({ description: 'Default `createdAt`' }),
+    sortOrder: z.enum(['asc', 'desc']).optional().meta({ description: 'Default `desc`' }),
+})
+
 const errorDescriptions: Record<number, string> = {
     400: 'Invalid input',
     401: 'Not logged in, or invalid credentials/token',
