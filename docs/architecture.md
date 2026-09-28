@@ -59,29 +59,44 @@ Key registry. Use kebab-case prefixes like the example's (`patient-registration-
 ## Email (`nodemailer` + `ejs`)
 
 Same as the example: a Gmail transporter in `lib/nodemailer.ts` (`service: 'gmail'`, `SMTP_USER` / `SMTP_PASSWORD` app password),
-and templates in a **flat** `src/app/templates/` folder rendered with
+and templates in `src/app/templates/` (shared parts in `templates/partials/`) rendered with
 `ejs.renderFile(path.join(process.cwd(), 'src/app/templates/<name>.ejs'), data)`.
 
-To avoid repeating those 10 lines in every service (as the example does), put them in one helper, `utils/sendEmail.ts`:
+All sending goes through `utils/sendEmail.ts`:
 
-```ts
-export const sendEmail = async ({ to, subject, templateName, templateData, attachments }: ISendEmailPayload) => {
-    const html = await ejs.renderFile(path.join(process.cwd(), `src/app/templates/${templateName}.ejs`), templateData)
-    await transporter.sendMail({ from: config.email_sender, to, subject, html, attachments })
-}
-```
+- `sendEmail({ to, subject, templateName, templateData, text?, attachments? })` renders the template and sends it.
+  `templateData` is **typed per template** (`IEmailTemplateData`), so a missing field fails `tsc`.
+- Shared values are merged into every render automatically: `appName`, `frontendUrl`, `currentYear`.
+- `text` is the plain-text alternative. Always pass one for OTP emails (better deliverability, readable in notifications).
+- `formatEmailDate(date)` → `"28 Sept 2026, 14:05 (Bangladesh time)"`.
+- OTP emails are awaited: if sending fails, the request fails (502), because the user needs the code.
+- Other emails use `sendEmailSafely` **after** the DB transaction: it logs and continues, so a mail error doesn't fail a committed action.
 
-- OTP emails are awaited: if sending fails, the request fails, because the user needs the code.
-- Other emails are sent **after** the DB transaction, in `try/catch` that logs and continues, so a mail error doesn't fail a committed action.
-- Templates follow `example-backend/src/app/templates/registration-user-otp.ejs` (full HTML doc, `<style>` in head,
-  `.container` card, footer). Use `<%= %>` (escaped) for every value.
+### Template design system (`src/app/templates/`)
 
-| Template | Data |
+Emails are **email-client safe**: table layout, inline styles (Outlook and Gmail ignore most `<style>` rules), a hidden
+preheader (the inbox preview line), and a 560px card that works on mobile. Never use flexbox/grid, external CSS, web fonts,
+or `<script>`. Output every value with escaped `<%= %>`; use `<%- %>` only for `include(...)`.
+
+| Partial (`partials/`) | Use |
+|---|---|
+| `layout-start` / `layout-end` | Every email starts with `include('partials/layout-start', { title, preheader })` and ends with `include('partials/layout-end')`: brand header, card, footer |
+| `heading` | `{ text }`: the H1 |
+| `button` | `{ href, label }`: bulletproof CTA button |
+| `otp-code` | `{ otp, expirationMinutes }`: large one-time-code box + expiry line |
+| `callout` | `{ tone: 'info' \| 'warning', title, text }`: highlighted note (security tips, "wasn't you?") |
+
+Brand tokens (in the partials): primary `#0f766e` (teal), text `#0f172a` / `#334155`, muted `#64748b`, page `#f1f5f4`.
+
+To add an email: add its data type to `IEmailTemplateData`, create `<name>.ejs` using the partials, then write a subject that
+says what happened (put codes in the subject: `"482913 is your … code"`).
+
+| Template | Data (+ shared `appName, frontendUrl, currentYear`) |
 |---|---|
 | `registration-user-otp.ejs` | `name, email, otp, expirationMinutes` |
-| `forgot-password.ejs` | `name, otp, expirationMinutes` |
-| `reset-password-success.ejs` | `name` |
-| `welcome-email.ejs` | `name, role` |
+| `forgot-password.ejs` | `name, email, otp, expirationMinutes` |
+| `reset-password-success.ejs` | `name, email, changedAt` |
+| `welcome-email.ejs` | `name, email, role` (steps + CTA differ for OWNER / TENANT) |
 | `viewing-status.ejs` | `name, propertyTitle, status, scheduledAt?` |
 | `application-status.ejs` | `name, propertyTitle, roomName, status, reason?` |
 | `payment-success.ejs` | `name, amount, period, reference, paidAt` (+ `pdfkit` receipt attached, as in the example's invoice) |

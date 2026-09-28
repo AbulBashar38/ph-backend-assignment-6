@@ -1,0 +1,51 @@
+<%#
+  Shared email shell. Include at the top of every template:
+    include('partials/layout-start', { title, preheader })
+  Email-safe on purpose: table layout + inline styles (Outlook/Gmail ignore most <style> rules).
+  Brand tokens live here so every email stays consistent.
+-%>
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <meta name="format-detection" content="telephone=no, date=no, address=no, email=no" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title><%= title %></title>
+    <style>
+      /* Only progressive enhancements here; everything essential is inline */
+      @media only screen and (max-width: 600px) {
+        .email-card { padding: 28px 22px !important; }
+        .email-heading { font-size: 22px !important; }
+        .otp-code { font-size: 30px !important; letter-spacing: 8px !important; }
+      }
+      a { color: #0f766e; }
+    </style>
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #f1f5f4; -webkit-text-size-adjust: 100%;">
+    <%# Preheader: the grey preview line shown next to the subject in the inbox -%>
+    <div style="display: none; max-height: 0; overflow: hidden; opacity: 0; mso-hide: all;">
+      <%= preheader %>&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;&#8199;&#65279;&#847;
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f1f5f4;">
+      <tr>
+        <td align="center" style="padding: 32px 12px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 560px;">
+            <%# Brand header -%>
+            <tr>
+              <td style="padding: 0 4px 20px 4px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td width="36" height="36" align="center" valign="middle" style="width: 36px; height: 36px; background-color: #0f766e; border-radius: 9px; font-family: Arial, Helvetica, sans-serif; font-size: 18px; line-height: 36px; color: #ffffff;">&#8962;</td>
+                    <td style="padding-left: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; font-weight: 700; color: #0f172a;"><%= appName %></td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <%# Card -%>
+            <tr>
+              <td class="email-card" style="background-color: #ffffff; border-radius: 14px; border: 1px solid #e2e8f0; border-top: 4px solid #0f766e; padding: 40px 36px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 24px; color: #334155;">

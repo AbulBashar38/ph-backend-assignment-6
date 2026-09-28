@@ -1,0 +1,11 @@
+<%#
+  Bulletproof button: works in Outlook (VML-free padding on the <a>) and every webmail client.
+    include('partials/button', { href, label })
+-%>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0;">
+  <tr>
+    <td align="center" style="border-radius: 10px; background-color: #0f766e;">
+      <a href="<%= href %>" target="_blank" style="display: inline-block; padding: 14px 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 700; line-height: 20px; color: #ffffff; text-decoration: none; border-radius: 10px;"><%= label %></a>
+    </td>
+  </tr>
+</table>

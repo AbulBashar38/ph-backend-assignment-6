@@ -31,6 +31,13 @@ export const jsonBody = (schema: z.ZodType) => ({
     content: { 'application/json': { schema } },
 })
 
+// For endpoints where the whole body may be omitted (e.g. the value usually comes from a cookie)
+export const optionalJsonBody = (schema: z.ZodType, description: string) => ({
+    required: false,
+    description,
+    content: { 'application/json': { schema } },
+})
+
 export const successResponse = (description: string, dataSchema: z.ZodType = z.null()) => ({
     description,
     content: {

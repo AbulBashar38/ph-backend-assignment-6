@@ -4,6 +4,7 @@ import {
     authSecurity,
     errorResponses,
     jsonBody,
+    optionalJsonBody,
     registry,
     successResponse,
 } from '../../docs/registry'
@@ -68,6 +69,26 @@ const AuthTokensSchema = z.object({
 })
 
 const AuthResultSchema = AuthTokensSchema.extend({ user: UserSchema })
+
+// Docs-only view of RefreshTokenValidationZodSchema: same shape, explained, and `{}` as the default example
+// so "Try it out" relies on the refreshToken cookie instead of sending a placeholder token
+const OptionalRefreshTokenBodySchema = RefreshTokenValidationZodSchema.extend({
+    refreshToken: z
+        .string()
+        .optional()
+        .meta({
+            description:
+                'Only needed when the `refreshToken` cookie is not sent (Postman, mobile apps). ' +
+                'Browsers and Swagger send the cookie automatically after /auth/login.',
+            example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        }),
+}).meta({ example: {} })
+
+const refreshTokenSourceNote =
+    '**Where the refresh token comes from:**\n' +
+    '- **Browser / Swagger:** send an empty body `{}`. The `refreshToken` cookie (set by /auth/login) is sent automatically.\n' +
+    '- **Postman / mobile:** send `{ "refreshToken": "<token from login>" }`.\n' +
+    'If both are present, the cookie wins.'
 
 registry.registerPath({
     method: 'post',
@@ -194,10 +215,16 @@ registry.registerPath({
     tags: [TAG],
     summary: 'Get a new token pair (public)',
     description:
-        'Reads the refresh token from the `refreshToken` cookie or the body. Tokens are rotated: ' +
-        'the old refresh token stops working. Reusing a revoked token logs the user out everywhere.',
+        'Returns a new access + refresh token pair. Tokens are rotated: the old refresh token stops working, ' +
+        'and replaying an old one later logs the user out everywhere. No access token needed.\n\n' +
+        refreshTokenSourceNote,
     security: [],
-    request: { body: jsonBody(RefreshTokenValidationZodSchema) },
+    request: {
+        body: optionalJsonBody(
+            OptionalRefreshTokenBodySchema,
+            'Optional: omit or send `{}` when the refreshToken cookie is present.',
+        ),
+    },
     responses: {
         200: successResponse('New Tokens Generated Successfully', AuthTokensSchema),
         ...errorResponses(401),
@@ -210,9 +237,17 @@ registry.registerPath({
     tags: [TAG],
     summary: 'Log out this device (public)',
     description:
-        'Revokes the refresh token (cookie or body `refreshToken`) and clears the auth cookies.',
+        "Revokes this device's refresh token and clears both auth cookies. Other devices stay logged in. " +
+        'No access token needed, so it works even after the access token has expired. ' +
+        'Always returns 200, even if no (or an invalid) token was sent.\n\n' +
+        refreshTokenSourceNote,
     security: [],
-    request: { body: jsonBody(RefreshTokenValidationZodSchema) },
+    request: {
+        body: optionalJsonBody(
+            OptionalRefreshTokenBodySchema,
+            'Optional: omit or send `{}` when the refreshToken cookie is present.',
+        ),
+    },
     responses: {
         200: successResponse('User Logged Out Successfully'),
     },

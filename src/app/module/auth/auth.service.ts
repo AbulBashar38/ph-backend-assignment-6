@@ -10,7 +10,7 @@ import { AppError } from '../../utils/AppError'
 import { authTokenUtils } from '../../utils/authTokens'
 import { jwtUtils } from '../../utils/jwt'
 import { OTP_EXPIRATION_SECONDS, otpUtils, type TOtpPurpose } from '../../utils/otp'
-import { sendEmail, sendEmailSafely } from '../../utils/sendEmail'
+import { APP_NAME, formatEmailDate, sendEmail, sendEmailSafely } from '../../utils/sendEmail'
 import type {
     IChangePasswordPayload,
     IForgotPasswordPayload,
@@ -38,13 +38,18 @@ const sendOtpEmail = async (
     { name, email, otp }: { name: string; email: string; otp: string },
 ) => {
     const isRegistration = purpose === 'user-registration'
+    const expirationMinutes = OTP_EXPIRATION_SECONDS / 60
 
     try {
         await sendEmail({
             to: email,
-            subject: isRegistration ? 'Verify Your Email' : 'Reset Your Password',
+            // Code in the subject so it's readable straight from the notification
+            subject: isRegistration
+                ? `${otp} is your ${APP_NAME} verification code`
+                : `${otp} is your ${APP_NAME} password reset code`,
             templateName: isRegistration ? 'registration-user-otp' : 'forgot-password',
-            templateData: { name, email, otp, expirationMinutes: OTP_EXPIRATION_SECONDS / 60 },
+            templateData: { name, email, otp, expirationMinutes },
+            text: `Hi ${name},\n\nYour ${isRegistration ? 'verification' : 'password reset'} code is ${otp}. It expires in ${expirationMinutes} minutes.\n\nNever share this code. If you didn't request it, you can ignore this email.\n\n${APP_NAME}`,
         })
     } catch (error) {
         console.error(`Failed to send ${purpose} OTP email to ${email}:`, error)
@@ -126,9 +131,9 @@ const verifyEmail = async (payload: IVerifyEmailPayload) => {
 
     await sendEmailSafely({
         to: email,
-        subject: 'Welcome To Housing & Roommate Platform',
+        subject: `Welcome to ${APP_NAME}, ${createdUser.name}!`,
         templateName: 'welcome-email',
-        templateData: { name: createdUser.name, role: createdUser.role },
+        templateData: { name: createdUser.name, email, role: createdUser.role },
     })
 
     const tokens = await authTokenUtils.issueAuthTokens(createdUser)
@@ -292,9 +297,9 @@ const googleLogin = async (payload: IGoogleLoginPayload) => {
     if (isNewUser) {
         await sendEmailSafely({
             to: email,
-            subject: 'Welcome To Housing & Roommate Platform',
+            subject: `Welcome to ${APP_NAME}, ${user.name}!`,
             templateName: 'welcome-email',
-            templateData: { name: user.name, role: user.role },
+            templateData: { name: user.name, email, role: user.role },
         })
     }
 
@@ -450,9 +455,9 @@ const resetPassword = async (payload: IResetPasswordPayload) => {
 
     await sendEmailSafely({
         to: email,
-        subject: 'Your Password Was Changed',
+        subject: `Your ${APP_NAME} password was changed`,
         templateName: 'reset-password-success',
-        templateData: { name: user.name },
+        templateData: { name: user.name, email, changedAt: formatEmailDate() },
     })
 }
 

@@ -1,0 +1,15 @@
+<%#
+  One-time code box.
+    include('partials/otp-code', { otp, expirationMinutes })
+-%>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0 12px 0;">
+  <tr>
+    <td align="center" style="background-color: #f0fdfa; border: 1px dashed #5eead4; border-radius: 12px; padding: 22px 12px;">
+      <div style="font-size: 12px; line-height: 16px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: #0f766e; margin-bottom: 10px;">Your code</div>
+      <div class="otp-code" style="font-family: 'SFMono-Regular', Menlo, Consolas, 'Courier New', monospace; font-size: 36px; line-height: 44px; font-weight: 700; letter-spacing: 12px; color: #0f172a; padding-left: 12px;"><%= otp %></div>
+    </td>
+  </tr>
+</table>
+<p style="margin: 0 0 24px 0; text-align: center; font-size: 13px; line-height: 20px; color: #64748b;">
+  This code expires in <strong style="color: #334155;"><%= expirationMinutes %> minutes</strong> and can only be used once.
+</p>
