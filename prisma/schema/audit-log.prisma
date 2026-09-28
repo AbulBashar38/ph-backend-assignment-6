@@ -1,0 +1,20 @@
+// Append-only record of important actions (requirement §19). Never updated or deleted.
+model AuditLog {
+  id String @id @default(uuid(7))
+
+  action       AuditAction
+  resource     String // e.g. "Property", "User"
+  resourceId   String
+  previousData Json?
+  newData      Json?
+  createdAt    DateTime    @default(now())
+
+  // Null for system actions (cron). Not a relation on purpose: logs must survive anything.
+  actorId   String?
+  actorRole Role?
+
+  @@index([resource, resourceId], name: "idx_auditLog_resource")
+  @@index([actorId], name: "idx_auditLog_actorId")
+  @@index([createdAt], name: "idx_auditLog_createdAt")
+  @@map("audit_logs")
+}

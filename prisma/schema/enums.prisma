@@ -21,3 +21,50 @@ enum Gender {
   FEMALE
   OTHER
 }
+
+enum PropertyType {
+  APARTMENT
+  HOUSE
+  HOSTEL
+  SUBLET
+  STUDIO
+}
+
+enum PropertyStatus {
+  DRAFT
+  PUBLISHED
+  INACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+// Shared by properties and (later) rooms, so search filters match exactly
+enum Amenity {
+  WIFI
+  AC
+  PARKING
+  LIFT
+  GENERATOR
+  GAS
+  CCTV
+  SECURITY_GUARD
+  FURNISHED
+  WATER_SUPPLY
+  KITCHEN
+  LAUNDRY
+  BALCONY
+  ROOFTOP
+  ATTACHED_BATHROOM
+}
+
+enum AuditAction {
+  USER_UPDATED
+  USER_DELETED
+  PROPERTY_CREATED
+  PROPERTY_UPDATED
+  PROPERTY_PUBLISHED
+  PROPERTY_DISABLED
+  PROPERTY_ARCHIVED
+  PROPERTY_SUSPENDED
+  PROPERTY_RESTORED
+}

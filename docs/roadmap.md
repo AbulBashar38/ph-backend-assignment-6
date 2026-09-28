@@ -42,7 +42,10 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 - [x] User: profile image upload/replace/remove (`PATCH`/`DELETE /user/:id/profile-image`)
 - [ ] Account deletion side effects once rentals/properties/applications exist (see docs/domain.md → Account deletion)
 - [x] Upload infrastructure: `lib/multer.ts` presets (image, document), `lib/cloudinary.ts`, `utils/cloudinaryUpload.ts`
-- [ ] Property: create (multipart), my/all/public lists with search/filter/sort/paginate, update, publish/disable, images, soft delete
+- [x] Property: create (JSON), my/all/public lists with search/filter/sort/paginate, details, update, publish/disable,
+      images (add/remove), admin suspend/restore, soft delete (archive), audit log
+- [ ] Property: rent/room filters in public search and "needs ≥1 room to publish" (with the Room module)
+- [ ] Property: cron `expireListings` (PUBLISHED past `expiresAt` → INACTIVE)
 - [ ] Room: create, update, status changes with guards, public available rooms
 
 ## Phase 3: Matching & viewings
@@ -65,7 +68,8 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 
 ## Phase 6: Notifications, audit, admin, analytics, cron
 
-- [ ] Notification + AuditLog helpers taking `tx`, plus their endpoints
+- [x] AuditLog model + `createAuditLog(tx, …)` helper
+- [ ] Notification helper taking `tx`; admin audit-log viewer and notification endpoints
 - [ ] Admin: users list/search, block/activate (delete the refresh token), create admin, property moderation
 - [ ] Analytics: admin stats from requirements §18 (example `analytics.service.ts` style), owner stats
 - [ ] `lib/cron.ts`: generateRentDues, sendRentReminders, expirePendingApplications, expireListings, reconcileStalePayments

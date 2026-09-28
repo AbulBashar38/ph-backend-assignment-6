@@ -8,6 +8,7 @@ import { openApiDocument } from './app/docs'
 import { globalErrorHandler } from './app/middleware/globalErrorHandler'
 import { notFound } from './app/middleware/notFound'
 import { AuthRoutes } from './app/module/auth/auth.route'
+import { PropertyRoutes } from './app/module/property/property.route'
 import { UserRoutes } from './app/module/user/user.route'
 
 const app: Application = express()
@@ -36,6 +37,7 @@ if (config.node_env !== 'production' || config.swagger_enabled === 'true') {
 
 app.use('/api/v1/auth', AuthRoutes)
 app.use('/api/v1/user', UserRoutes)
+app.use('/api/v1/property', PropertyRoutes)
 
 // Basic route
 app.get('/', (_req: Request, res: Response) => {

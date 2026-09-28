@@ -14,7 +14,8 @@ One `.prisma` file per model in `prisma/schema/`, styled like the example (`@@ma
 | `Tenant` | userId @unique, name, email @unique, occupation?, gender?, isDeleted | Role profile, like the example's `Patient` |
 | `Owner` | userId @unique, name, email @unique, address?, isDeleted | Role profile, like the example's `Doctor` |
 | `RoommateProfile` | tenantId @unique, age, gender, occupation, budgetMin, budgetMax, preferredCity, preferredArea, moveInDate, smoking, pets, sleepSchedule, lifestyle String[], genderPreference, isActive | `isActive` = "roommate search enabled" |
-| `Property` | ownerId, title, description, propertyType, address, city, area, amenities String[], images Json? `[{ url, publicId }]`, status, expiresAt?, isDeleted | Images stored like the example's `Doctor.additionalFiles` |
+| `Property` | ownerId, title, description, propertyType, address, city, area, latitude?, longitude?, amenities `Amenity[]`, status, publishedAt?, expiresAt?, moderationNote?, moderatedAt?, isDeleted, deletedAt | **Implemented.** Photos live in `PropertyImage` |
+| `PropertyImage` | propertyId, url, publicId, createdAt | **Implemented.** Max 20 per property; rows are file references, so removing a photo deletes the row (not a soft delete) |
 | `Room` | propertyId, name, roomType, monthlyRent Decimal(10,2), maxOccupants, currentOccupants, amenities String[], images Json?, status, availableFrom, description?, isDeleted | |
 | `ViewingRequest` | tenantId, propertyId, roomId?, preferredDate, preferredTime, message?, status, scheduledAt?, ownerNote? | |
 | `Application` | tenantId, propertyId, roomId, message?, documents Json?, status, expiresAt, reviewedAt?, rejectionReason? | Mirrors the example's `reviewedAt` / `rejectionReason` |
@@ -77,9 +78,24 @@ An owner can **never** set OCCUPIED/RESERVED → AVAILABLE by hand while a PENDI
 
 **Rental**: `PENDING → ACTIVE` (first payment), `PENDING → TERMINATED`, `ACTIVE → COMPLETED | TERMINATED`.
 
-**Property**: `DRAFT → PUBLISHED` (owner, needs ≥1 room), `PUBLISHED ↔ INACTIVE` (owner/cron),
-`any → SUSPENDED` (admin), `SUSPENDED → PUBLISHED` (admin), `any → ARCHIVED` (owner "remove"; soft delete).
-An owner can't archive a property with a PENDING/ACTIVE rental.
+**Property** (implemented in `PropertyServices`; every change is a conditional `updateMany` + audit log):
+
+```text
+DRAFT | INACTIVE → PUBLISHED      owner: needs ≥1 image, expiresAt (if set) in the future; sets publishedAt
+PUBLISHED        → INACTIVE       owner "disable" (later also cron when expiresAt passes)
+any live status  → SUSPENDED      admin, with a reason (moderationNote); the owner can't publish it
+SUSPENDED        → INACTIVE       admin "restore"; the owner reviews and re-publishes
+any live status  → ARCHIVED       owner "remove" = soft delete (isDeleted); read-only afterwards
+```
+
+Public visibility = `PUBLISHED` + not deleted + not expired + owner account `ACTIVE` and not deleted.
+**Who may do what:** ADMIN / SUPER_ADMIN can do **everything** with any property (create on behalf of an owner with a
+required `ownerId`, edit, publish, disable, add/remove photos, archive), plus suspend / restore, which owners can't.
+Owners can do everything except moderation, only on their own properties. An admin may publish a SUSPENDED listing
+directly (clears the note); an owner can't. Rules that protect data apply to everyone: ≥1 image to publish, the last
+image of a published listing stays, archived listings are read-only. Every admin action is audited with the admin as actor.
+The last image of a `PUBLISHED` property can't be removed. **Still TODO:** "needs ≥1 room" to publish, and refusing to
+archive while a room has a PENDING/ACTIVE rental (Room / Rental modules).
 
 **Viewing**: `PENDING → APPROVED | REJECTED | RESCHEDULED`, `RESCHEDULED → APPROVED | CANCELLED`,
 `APPROVED → COMPLETED | CANCELLED`, `PENDING → CANCELLED` (tenant).
@@ -146,9 +162,10 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
   an admin deleting someone stays logged in.
 - Afterwards the deleted user gets: login → 401, Google login → 403, forgot-password → 404, and register with the same
   email/phone → 409 "belongs to a deleted account, contact support".
+- **Done:** an owner's properties → `ARCHIVED` in the same transaction; audit `USER_DELETED` (every delete) and
+  `USER_UPDATED` (when an admin edits someone else's account).
 - **To add when those modules exist** (marked `TODO` in the service): refuse while the user has a `PENDING`/`ACTIVE` rental
-  (409); an owner's properties → `ARCHIVED` and rooms → `UNAVAILABLE`; the user's `PENDING` applications and viewings →
-  `CANCELLED` (+ notify the other party); audit `USER_UPDATED`/`USER_DELETED` when an admin acts on someone else.
+  (409); rooms → `UNAVAILABLE`; the user's `PENDING` applications and viewings → `CANCELLED` (+ notify the other party).
 
 ## Business rules and invariants
 
@@ -181,7 +198,7 @@ if (count === 0) throw new AppError(httpStatus.CONFLICT, 'Room is no longer avai
 ```
 
 Use `prisma.$transaction(async (tx) => { ... })` and **only `tx`** inside it. The example sometimes calls `prisma.` inside a
-transaction, which is a bug; don't copy it. Pass `tx` into helpers: `AuditServices.createAuditLog(tx, {...})`,
+transaction, which is a bug; don't copy it. Pass `tx` into helpers: `createAuditLog(tx, {...})` (`utils/auditLog.ts`),
 `NotificationServices.createNotification(tx, {...})`. Never call Stripe or send email inside the callback.
 
 ## Payments (Stripe)
@@ -246,9 +263,13 @@ Rules: the client never sends an amount (it's always `Payment.amount`). No endpo
    Label bands: ≥80% "Highly Compatible", ≥60% "Compatible", ≥40% "Partially Compatible", else "Low".
 4. Cache the results in `roommate-matches:{tenantId}` (10 min) and delete that key when the tenant's profile changes.
 
-## Audit actions (`AuditAction` Prisma enum)
+## Audit log (`AuditLog` model, `createAuditLog(tx, …)` in `utils/auditLog.ts`)
 
-`PROPERTY_CREATED, PROPERTY_UPDATED, PROPERTY_PUBLISHED, PROPERTY_ARCHIVED, PROPERTY_SUSPENDED, ROOM_CREATED,
+Append-only; `actorId`/`actorRole` of whoever acted (null for cron), `resource` + `resourceId`, and `previousData` /
+`newData` holding **only the changed fields**. Always written inside the same transaction as the change.
+Add new actions to the `AuditAction` enum as modules are built. **In the enum now:** `USER_UPDATED, USER_DELETED,
+PROPERTY_CREATED, PROPERTY_UPDATED, PROPERTY_PUBLISHED, PROPERTY_DISABLED, PROPERTY_ARCHIVED, PROPERTY_SUSPENDED,
+PROPERTY_RESTORED`. **Planned:** `ROOM_CREATED,
 ROOM_STATUS_CHANGED, APPLICATION_SUBMITTED, APPLICATION_APPROVED, APPLICATION_REJECTED, APPLICATION_CANCELLED,
 APPLICATION_EXPIRED, RENTAL_CREATED, RENTAL_STATUS_CHANGED, PAYMENT_COMPLETED, PAYMENT_FAILED, USER_BLOCKED,
 USER_ACTIVATED, VIEWING_STATUS_CHANGED`

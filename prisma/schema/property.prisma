@@ -1,0 +1,50 @@
+model Property {
+  id String @id @default(uuid(7))
+
+  title        String
+  description  String
+  propertyType PropertyType
+  address      String
+  city         String
+  area         String
+  latitude     Float?
+  longitude    Float?
+  amenities    Amenity[]
+
+  status         PropertyStatus @default(DRAFT)
+  publishedAt    DateTime?
+  // Listing becomes INACTIVE automatically after this date (cron, requirement §20)
+  expiresAt      DateTime?
+  // Set by admin moderation
+  moderationNote String?
+  moderatedAt    DateTime?
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  ownerId String
+  owner   Owner  @relation(fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  images PropertyImage[]
+
+  @@index([ownerId], name: "idx_property_ownerId")
+  @@index([status, isDeleted], name: "idx_property_status_isDeleted")
+  @@index([city, area], name: "idx_property_city_area")
+  @@map("properties")
+}
+
+model PropertyImage {
+  id String @id @default(uuid(7))
+
+  url       String
+  publicId  String
+  createdAt DateTime @default(now())
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([propertyId], name: "idx_propertyImage_propertyId")
+  @@map("property_images")
+}

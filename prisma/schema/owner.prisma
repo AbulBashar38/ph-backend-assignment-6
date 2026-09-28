@@ -12,6 +12,8 @@ model Owner {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
+  properties Property[]
+
   @@index([isDeleted], name: "idx_owner_isDeleted")
   @@map("owners")
 }

@@ -101,10 +101,12 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       PATCH /:id(self, or A per role rules) · DELETE /:id(self, or A per role rules; soft delete;
                       body { password } = caller's own)
                       PATCH /:id/profile-image(self or A; multipart `profileImage`) · DELETE /:id/profile-image(self or A)
-/api/v1/property      POST /(O, JSON) · GET /my-properties(O) · GET /(A) · GET /public/all-properties🌐 · GET /public/:id🌐
-                      PATCH /:id(O owner-of, JSON) · PATCH /:id/publish(O) · PATCH /:id/disable(O)
-                      POST /:id/images(O, multipart `images`, 1–10) · DELETE /:id/images/:imageId(O)
-                      PATCH /:id/moderate(A) · DELETE /:id(O, soft → ARCHIVED)
+/api/v1/property      (implemented; "O/A" = owner of the property, or any admin)
+                      POST /(O for self, A with ownerId; JSON → DRAFT) · GET /(O → own listings, A → all)
+                      GET /:id(O/A) · PATCH /:id(O/A) · PATCH /:id/publish(O/A) · PATCH /:id/disable(O/A)
+                      POST /:id/images(O/A, multipart `images`, 1–10) · DELETE /:id/images/:imageId(O/A)
+                      DELETE /:id(O/A, soft → ARCHIVED) · PATCH /:id/moderate(A only, { action, reason })
+                      GET /public/all-properties🌐 · GET /public/:id🌐
 /api/v1/room          POST /(O, JSON with propertyId) · PATCH /:id(O) · POST /:id/images · DELETE /:id/images/:imageId
                       PATCH /:id/status(O) · GET /public/available-rooms🌐 · GET /public/:id🌐
 /api/v1/roommate      POST /create-profile(T) · GET /my-profile(T) · PATCH /update-my-profile(T)
@@ -126,6 +128,10 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
 /api/v1/analytics     GET /admin-analytics(A) · GET /owner-analytics(O)
 /api/v1/audit         GET /all-audit-logs(A)
 ```
+
+**Management lists are scoped by role on one route**, not split into `/my-x` + `/all-x`: e.g. `GET /property`
+returns an owner's own listings and every listing for admins (same full shape). Public data always has its own
+`/public/...` routes, so drafts and deleted records can't leak through role logic.
 
 "✱ owner-of" = the single-item ownership check from the example's `getSingleAppointment`: tenants and owners only see their own records, and admins see all.
 

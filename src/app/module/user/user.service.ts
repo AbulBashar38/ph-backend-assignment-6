@@ -1,11 +1,12 @@
 import bcrypt from 'bcryptjs'
 import httpStatus from 'http-status'
-import { Role, UserStatus } from '../../../generated/prisma/enums'
+import { AuditAction, PropertyStatus, Role, UserStatus } from '../../../generated/prisma/enums'
 import type { UserWhereInput } from '../../../generated/prisma/models'
 import type { IQuery } from '../../interfaces'
 import { prisma } from '../../lib/prisma'
 import type { RequestUser } from '../../middleware/checkAuth'
 import { AppError } from '../../utils/AppError'
+import { createAuditLog } from '../../utils/auditLog'
 import { authTokenUtils } from '../../utils/authTokens'
 import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
@@ -147,31 +148,60 @@ const updateUser = async (actor: RequestUser, userId: string, payload: IUpdateUs
     // Upsert covers older accounts created before profiles existed.
     const profileName = name ?? user.name
 
-    // TODO(audit module): write USER_UPDATED with previous/new data when actor !== target
-    return prisma.user.update({
-        where: { id: user.id },
-        data: {
-            name,
-            phone,
-            ...(user.role === Role.TENANT && {
-                tenant: {
-                    upsert: {
-                        create: { name: profileName, email: user.email, occupation, gender },
-                        update: { name, occupation, gender },
+    const isSelf = actor.userId === user.id
+    const currentValues = {
+        name: user.name,
+        phone: user.phone,
+        occupation: user.tenant?.occupation,
+        gender: user.tenant?.gender,
+        address: user.owner?.address,
+    }
+
+    return prisma.$transaction(async (tx) => {
+        const updatedUser = await tx.user.update({
+            where: { id: user.id },
+            data: {
+                name,
+                phone,
+                ...(user.role === Role.TENANT && {
+                    tenant: {
+                        upsert: {
+                            create: { name: profileName, email: user.email, occupation, gender },
+                            update: { name, occupation, gender },
+                        },
                     },
-                },
-            }),
-            ...(user.role === Role.OWNER && {
-                owner: {
-                    upsert: {
-                        create: { name: profileName, email: user.email, address },
-                        update: { name, address },
+                }),
+                ...(user.role === Role.OWNER && {
+                    owner: {
+                        upsert: {
+                            create: { name: profileName, email: user.email, address },
+                            update: { name, address },
+                        },
                     },
-                },
-            }),
-        },
-        omit: { password: true },
-        include: { tenant: true, owner: true },
+                }),
+            },
+            omit: { password: true },
+            include: { tenant: true, owner: true },
+        })
+
+        // Requirement §19: log admins changing someone else's account
+        if (!isSelf) {
+            await createAuditLog(tx, {
+                actor,
+                action: AuditAction.USER_UPDATED,
+                resource: 'User',
+                resourceId: user.id,
+                previousData: Object.fromEntries(
+                    Object.keys(payload).map((key) => [
+                        key,
+                        currentValues[key as keyof typeof currentValues],
+                    ]),
+                ),
+                newData: payload,
+            })
+        }
+
+        return updatedUser
     })
 }
 
@@ -274,8 +304,25 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
             data: { isDeleted: true, deletedAt },
         })
 
-        // TODO(rentals/properties/audit modules): refuse while a PENDING/ACTIVE rental exists, archive the owner's
-        // properties, cancel pending applications/viewings, and write a USER_DELETED audit log (docs/domain.md)
+        // A deleted owner's listings leave the site too (kept as ARCHIVED for history)
+        if (user.owner) {
+            await tx.property.updateMany({
+                where: { ownerId: user.owner.id, isDeleted: false },
+                data: { isDeleted: true, deletedAt, status: PropertyStatus.ARCHIVED },
+            })
+        }
+
+        await createAuditLog(tx, {
+            actor,
+            action: AuditAction.USER_DELETED,
+            resource: 'User',
+            resourceId: user.id,
+            previousData: { status: user.status, role: user.role, email: user.email },
+            newData: { status: UserStatus.DELETED, deletedBy: isSelf ? 'self' : 'admin' },
+        })
+
+        // TODO(rental/application modules): refuse while a PENDING/ACTIVE rental exists (409) and cancel
+        // pending applications/viewings (docs/domain.md → User update & delete)
     })
 
     // Log the deleted user out everywhere; auth() already rejects their access token because isDeleted is set
