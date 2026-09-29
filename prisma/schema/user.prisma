@@ -27,6 +27,9 @@ model User {
   // Properties this user owns (role OWNER; enforced in services, not by the database)
   properties Property[]
 
+  // Tenants looking for a roommate (optional, at most one)
+  roommateProfile RoommateProfile?
+
   @@index([role], name: "idx_user_role")
   @@index([status], name: "idx_user_status")
   @@map("users")

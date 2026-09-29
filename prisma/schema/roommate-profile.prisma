@@ -1,0 +1,29 @@
+// A tenant's "looking for a roommate" profile. Gender and occupation live on User.
+// Never deleted: `isActive` switches roommate search on/off (deleting the account switches it off).
+model RoommateProfile {
+  id String @id @default(uuid(7))
+
+  age               Int
+  budgetMin         Int // whole BDT per month
+  budgetMax         Int
+  preferredCity     String
+  preferredArea     String?
+  moveInDate        DateTime
+  smokingPreference Preference     @default(NO_PREFERENCE)
+  petPreference     Preference     @default(NO_PREFERENCE)
+  sleepSchedule     SleepSchedule  @default(FLEXIBLE)
+  lifestyle         LifestyleTag[]
+  // Gender of the roommate they want; null = any
+  genderPreference  Gender?
+  bio               String?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantId String @unique
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([isActive, preferredCity], name: "idx_roommateProfile_active_city")
+  @@map("roommate_profiles")
+}

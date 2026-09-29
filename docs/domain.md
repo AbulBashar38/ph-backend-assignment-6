@@ -14,7 +14,7 @@ role, so services check it (e.g. `findActiveOwner` in `property.service.ts`).
 | Model | Key fields | Notes |
 |---|---|---|
 | `User` | see [auth.md](auth.md#roles-status-user-model); plus `gender?`, `occupation?` (tenants), `address?` (owners) | **One table for all roles, no Tenant/Owner profile tables** |
-| `RoommateProfile` | tenantId @unique, age, budgetMin, budgetMax, preferredCity, preferredArea, moveInDate, smoking, pets, sleepSchedule, lifestyle String[], genderPreference, isActive | `isActive` = "roommate search enabled". Gender and occupation come from `User` (not duplicated) |
+| `RoommateProfile` | tenantId @unique (user id), age, budgetMin, budgetMax (whole taka), preferredCity, preferredArea?, moveInDate, smokingPreference, petPreference (`Preference`), sleepSchedule, lifestyle `LifestyleTag[]`, genderPreference? (null = any), bio?, isActive | **Implemented.** One per tenant, never deleted: `isActive` = roommate search on/off (account deletion turns it off). Gender and occupation live on `User` and can be sent with the profile |
 | `Property` | ownerId, title, description, propertyType, address, city, area, latitude?, longitude?, amenities `Amenity[]`, status, publishedAt?, expiresAt?, moderationNote?, moderatedAt?, isDeleted, deletedAt | **Implemented.** Photos live in `PropertyImage` |
 | `PropertyImage` | propertyId, url, publicId, createdAt | **Implemented.** Max 20 per property; rows are file references, so removing a photo deletes the row (not a soft delete) |
 | `Room` | propertyId, name, roomType, monthlyRent **Int (whole taka)**, maxOccupants, description?, amenities `Amenity[]`, availableFrom?, status, isDeleted, deletedAt | **Implemented.** One tenant rents the **whole room**; `maxOccupants` is information only. Name unique among the property's live rooms |
@@ -44,7 +44,9 @@ ApplicationStatus: PENDING | APPROVED | REJECTED | CANCELLED | EXPIRED
 RentalStatus:      PENDING | ACTIVE | COMPLETED | TERMINATED
 PaymentStatus:     PENDING | PAID | FAILED | CANCELLED
 SleepSchedule:     EARLY_BIRD | NIGHT_OWL | FLEXIBLE
-Preference:        YES | NO | NO_PREFERENCE          (smoking, pets)
+Preference:        YES | NO | NO_PREFERENCE          (smoking, pets: "I do / fine with it", "please no", "don't mind")
+LifestyleTag:      QUIET | SOCIAL | CLEAN | STUDIOUS | WORK_FROM_HOME | FITNESS | COOKING | GAMING | MUSIC | VEGETARIAN
+                   | RELIGIOUS | PARTY
 NotificationType:  VIEWING_REQUESTED | VIEWING_UPDATED | APPLICATION_SUBMITTED | APPLICATION_APPROVED | APPLICATION_REJECTED
                    | APPLICATION_CANCELLED | APPLICATION_EXPIRED | PAYMENT_SUCCESS | PAYMENT_RECEIVED | RENT_DUE
                    | RENTAL_STATUS_CHANGED | ROOM_AVAILABILITY_CHANGED | ACCOUNT_STATUS_CHANGED

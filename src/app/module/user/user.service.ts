@@ -301,6 +301,12 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
             })
         }
 
+        // A deleted account no longer appears in roommate matches
+        await tx.roommateProfile.updateMany({
+            where: { tenantId: user.id },
+            data: { isActive: false },
+        })
+
         await createAuditLog(tx, {
             actor,
             action: AuditAction.USER_DELETED,

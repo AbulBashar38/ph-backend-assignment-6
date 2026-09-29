@@ -74,6 +74,36 @@ enum RoomStatus {
   MAINTENANCE
 }
 
+// Roommate preferences for smoking / pets:
+// YES = "I smoke (have pets) or I'm fine with it", NO = "please no", NO_PREFERENCE = "don't mind"
+enum Preference {
+  YES
+  NO
+  NO_PREFERENCE
+}
+
+enum SleepSchedule {
+  EARLY_BIRD
+  NIGHT_OWL
+  FLEXIBLE
+}
+
+// Fixed list so roommate matching can compare lifestyles reliably
+enum LifestyleTag {
+  QUIET
+  SOCIAL
+  CLEAN
+  STUDIOUS
+  WORK_FROM_HOME
+  FITNESS
+  COOKING
+  GAMING
+  MUSIC
+  VEGETARIAN
+  RELIGIOUS
+  PARTY
+}
+
 enum AuditAction {
   USER_UPDATED
   USER_DELETED

@@ -5,6 +5,7 @@ import { registry } from './registry'
 import '../module/auth/auth.openapi'
 import '../module/property/property.openapi'
 import '../module/room/room.openapi'
+import '../module/roommate/roommate.openapi'
 import '../module/user/user.openapi'
 
 export const openApiDocument = new OpenApiGeneratorV31(registry.definitions).generateDocument({
