@@ -72,7 +72,9 @@ and every new or changed route is documented in its `x.openapi.ts`.
   check the role (e.g. `findActiveOwner`) and ownership (`resource.ownerId === req.user.userId`). Role checks in routes
   aren't enough.
 - State-changing actions in requirements §19 write an `AuditLog` via `createAuditLog(tx, …)` (`utils/auditLog.ts`), and
-  events in §17 create a `Notification`, both in the same transaction. Reference: `PropertyServices`.
+  events in §17 create a `Notification` via `createNotifications(tx, [...])` (`utils/notification.ts`), both in the
+  same transaction. References: `PropertyServices` (audit), `ViewingServices` (notifications). Add new notification kinds
+  to the `NotificationType` enum.
 - **Never hard-delete. Every delete is a soft delete**, in every module and every case: set `isDeleted: true` + `deletedAt`
   (and a `DELETED`/`ARCHIVED` status where the model has one). No `prisma.x.delete()`/`deleteMany()` on business data.
   Every query for live data filters `isDeleted: false`. Applications, rentals, payments and audit logs only change status.

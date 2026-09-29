@@ -104,6 +104,27 @@ enum LifestyleTag {
   PARTY
 }
 
+// PENDING → APPROVED | REJECTED | RESCHEDULED (owner/admin); APPROVED | RESCHEDULED → COMPLETED (owner/admin);
+// PENDING | APPROVED | RESCHEDULED → CANCELLED (tenant, or automatically when the property/room/account goes away)
+enum ViewingStatus {
+  PENDING
+  APPROVED
+  RESCHEDULED
+  REJECTED
+  CANCELLED
+  COMPLETED
+}
+
+// Add a value here for every new kind of notification (requirement §17)
+enum NotificationType {
+  VIEWING_REQUESTED
+  VIEWING_APPROVED
+  VIEWING_REJECTED
+  VIEWING_RESCHEDULED
+  VIEWING_CANCELLED
+  VIEWING_COMPLETED
+}
+
 enum AuditAction {
   USER_UPDATED
   USER_DELETED

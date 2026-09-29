@@ -17,6 +17,7 @@ import { authTokenUtils } from '../../utils/authTokens'
 import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
+import { cancelOpenViewings } from '../viewing/viewing.utils'
 import { USER_SEARCHABLE_FIELDS, USER_SORTABLE_FIELDS } from './user.constant'
 import type { IDeleteUserPayload, IUpdateUserPayload } from './user.interface'
 import { GetAllUsersQueryZodSchema } from './user.validation'
@@ -299,6 +300,23 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
                 where: { property: { ownerId: user.id }, isDeleted: false },
                 data: { isDeleted: true, deletedAt, status: RoomStatus.UNAVAILABLE },
             })
+        }
+
+        // Open viewings can't happen any more: cancel them and tell the other side
+        if (user.role === Role.OWNER) {
+            await cancelOpenViewings(
+                tx,
+                { property: { ownerId: user.id } },
+                'The owner closed their account',
+                'tenant',
+            )
+        } else if (user.role === Role.TENANT) {
+            await cancelOpenViewings(
+                tx,
+                { tenantId: user.id },
+                'The tenant closed their account',
+                'owner',
+            )
         }
 
         // A deleted account no longer appears in roommate matches

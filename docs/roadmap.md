@@ -56,7 +56,8 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 - [x] Roommate profile create/get/update, search on/off (`/roommate/profile`, `/profile/me`, `/profile/me/status`)
 - [x] Matching: `GET /roommate/matches` (0–100 score + per-factor breakdown, gender both ways, city + budget filter),
       `GET /roommate/profile/:id` (no Redis cache: not needed at this size)
-- [ ] Viewing requests (request, cancel, owner update-status, lists)
+- [x] Viewing requests: request, cancel, approve / reject / reschedule / complete, role-scoped lists, cascades
+- [x] Notifications: model, `createNotifications(tx, …)` helper, list / unread count / mark read / mark all read
 
 ## Phase 4: Applications & rentals
 
@@ -73,7 +74,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 ## Phase 6: Notifications, audit, admin, analytics, cron
 
 - [x] AuditLog model + `createAuditLog(tx, …)` helper
-- [ ] Notification helper taking `tx`; admin audit-log viewer and notification endpoints
+- [ ] Admin audit-log viewer
 - [ ] Admin: users list/search, block/activate (delete the refresh token), create admin, property moderation
 - [ ] Analytics: admin stats from requirements §18 (example `analytics.service.ts` style), owner stats
 - [ ] `lib/cron.ts`: generateRentDues, sendRentReminders, expirePendingApplications, expireListings, reconcileStalePayments

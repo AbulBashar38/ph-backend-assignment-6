@@ -16,6 +16,7 @@ import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
 import { publiclyVisibleProperty } from '../property/property.service'
+import { cancelOpenViewings } from '../viewing/viewing.utils'
 import { MAX_IMAGES_PER_ROOM, ROOM_SEARCHABLE_FIELDS, ROOM_SORTABLE_FIELDS } from './room.constant'
 import type {
     ICreateRoomPayload,
@@ -413,6 +414,8 @@ const archiveRoom = async (actor: RequestUser, roomId: string) => {
                 'Room Status Changed. Please Refresh And Try Again',
             )
         }
+
+        await cancelOpenViewings(tx, { roomId: room.id }, 'The room was removed', 'tenant')
 
         await createAuditLog(tx, {
             actor,

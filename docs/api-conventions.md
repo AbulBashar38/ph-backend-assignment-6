@@ -115,9 +115,8 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
 /api/v1/roommate      (implemented) POST /profile(T) · GET /profile/me(T) · PATCH /profile/me(T)
                       PATCH /profile/me/status(T, { isActive }) · GET /matches(T, search on; minScore, page, limit)
                       GET /profile/:id(T, search on; with compatibility)
-/api/v1/viewing       POST /request-viewing(T) · GET /my-viewings(T) · PATCH /cancel-viewing/:viewingId(T)
-                      GET /owner-viewings(O) · PATCH /update-status/:viewingId(O, body { status, scheduledAt?, ownerNote? })
-                      GET /all-viewings(A) · GET /:viewingId(✱ owner-of)
+/api/v1/viewing       (implemented) POST /(T) · PATCH /:id/status(one endpoint; body per status, see below)
+                      · GET /(T own, O own properties, A all) · GET /:id(the tenant, the property owner, or A)
 /api/v1/application   POST /submit-application(T) · GET /my-applications(T) · PATCH /cancel-application/:applicationId(T)
                       GET /owner-applications(O) · PATCH /approve-application/:applicationId(O)
                       PATCH /reject-application/:applicationId(O, body { rejectionReason })
@@ -126,8 +125,7 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       PATCH /terminate-rental/:rentalId(O) · PATCH /complete-rental/:rentalId(O) · GET /:rentalId(✱ owner-of)
 /api/v1/payment       POST /pay-rent/:paymentId(T) · POST /webhook(Stripe only) · GET /my-payments(T)
                       GET /owner-payments(O) · GET /all-payments(A) · GET /:paymentId(✱ owner-of)
-/api/v1/notification  GET /my-notifications(✱) · GET /unread-count(✱) · PATCH /mark-all-as-read(✱)
-                      PATCH /mark-as-read/:notificationId(✱)
+/api/v1/notification  (implemented) GET /(✱ own, ?isRead) · GET /unread-count(✱) · PATCH /read-all(✱) · PATCH /:id/read(✱ own)
 /api/v1/admin         GET /all-users(A) · GET /user/:userId(A) · PATCH /update-user-status/:userId(A) · POST /create-admin(SUPER_ADMIN)
 /api/v1/analytics     GET /admin-analytics(A) · GET /owner-analytics(O)
 /api/v1/audit         GET /all-audit-logs(A)
@@ -136,6 +134,18 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
 **Management lists are scoped by role on one route**, not split into `/my-x` + `/all-x`: e.g. `GET /property`
 returns an owner's own listings and every listing for admins (same full shape). Public data always has its own
 `/public/...` routes, so drafts and deleted records can't leak through role logic.
+
+**Status changes use ONE endpoint per resource: `PATCH /x/:id/status`** (easier for the frontend: one call behind a
+dropdown). The body is a Zod `discriminatedUnion` on `status`, so each status gets exactly its own fields (e.g.
+`{ status: 'RESCHEDULED', scheduledAt, ownerNote? }`), and unknown or mismatched fields → 400. The service then:
+
+1. checks **who may set that status** (403 otherwise; e.g. only the tenant may set `CANCELLED`),
+2. checks it's **allowed from the current status** (409 otherwise),
+3. applies it with a conditional `updateMany` + the side effects (notifications, audit) in one transaction.
+
+Reference: `ViewingServices.updateViewingStatus` + `UpdateViewingStatusValidationZodSchema`. Swagger lists the
+status → body → who → allowed-from table in the endpoint description.
+(Older modules still use a few action routes: property `publish` / `disable` / `moderate`.)
 
 "✱ owner-of" = the single-item ownership check from the example's `getSingleAppointment`: tenants and owners only see their own records, and admins see all.
 

@@ -19,11 +19,11 @@ role, so services check it (e.g. `findActiveOwner` in `property.service.ts`).
 | `PropertyImage` | propertyId, url, publicId, createdAt | **Implemented.** Max 20 per property; rows are file references, so removing a photo deletes the row (not a soft delete) |
 | `Room` | propertyId, name, roomType, monthlyRent **Int (whole taka)**, maxOccupants, description?, amenities `Amenity[]`, availableFrom?, status, isDeleted, deletedAt | **Implemented.** One tenant rents the **whole room**; `maxOccupants` is information only. Name unique among the property's live rooms |
 | `RoomImage` | roomId, url, publicId, createdAt | **Implemented.** Max 10 per room |
-| `ViewingRequest` | tenantId, propertyId, roomId?, preferredDate, preferredTime, message?, status, scheduledAt?, ownerNote? | |
+| `ViewingRequest` | tenantId, propertyId, roomId?, preferredAt, message?, status, scheduledAt?, ownerNote?, respondedAt?, cancelledAt?, cancellationReason?, completedAt? | **Implemented.** Never deleted, only changes status. One open request per tenant per property/room |
 | `Application` | tenantId, propertyId, roomId, message?, documents Json?, status, expiresAt, reviewedAt?, rejectionReason? | Mirrors the example's `reviewedAt` / `rejectionReason` |
 | `Rental` | applicationId @unique, tenantId, ownerId, propertyId, roomId, monthlyRent (Int), startDate, endDate?, status | Rent is a snapshot, so don't read the live `Room.monthlyRent` |
 | `Payment` | rentalId, tenantId, amount Decimal(10,2), currency @default("BDT"), paymentGateway @default("stripe"), periodStart, periodEnd, dueDate, status, stripeSessionId? @unique, stripePaymentIntentId? @unique, paidAt?, gatewayResponse Json? | One row per rent period, shaped like the example's `Payment`. `@@unique([rentalId, periodStart])` |
-| `Notification` | userId, type (enum), title, message, isRead, readAt? | |
+| `Notification` | userId, type (`NotificationType`), title, message, data Json? (ids to link to), isRead, readAt? | **Implemented.** Created with `createNotifications(tx, [...])` (`utils/notification.ts`) in the event's transaction |
 | `AuditLog` | actorId?, actorRole?, action (enum), resource, resourceId, previousData Json?, newData Json?, createdAt | Append-only. `actorId` is null for cron actions |
 
 Add indexes on FKs and common filters (`city`, `area`, `status`, `monthlyRent`), like the example's `@@index(..., name: "idx_...")`.
@@ -47,7 +47,8 @@ SleepSchedule:     EARLY_BIRD | NIGHT_OWL | FLEXIBLE
 Preference:        YES | NO | NO_PREFERENCE          (smoking, pets: "I do / fine with it", "please no", "don't mind")
 LifestyleTag:      QUIET | SOCIAL | CLEAN | STUDIOUS | WORK_FROM_HOME | FITNESS | COOKING | GAMING | MUSIC | VEGETARIAN
                    | RELIGIOUS | PARTY
-NotificationType:  VIEWING_REQUESTED | VIEWING_UPDATED | APPLICATION_SUBMITTED | APPLICATION_APPROVED | APPLICATION_REJECTED
+NotificationType:  (in the enum now) VIEWING_REQUESTED | VIEWING_APPROVED | VIEWING_REJECTED | VIEWING_RESCHEDULED
+                   | VIEWING_CANCELLED | VIEWING_COMPLETED; (planned) APPLICATION_SUBMITTED | APPLICATION_APPROVED | APPLICATION_REJECTED
                    | APPLICATION_CANCELLED | APPLICATION_EXPIRED | PAYMENT_SUCCESS | PAYMENT_RECEIVED | RENT_DUE
                    | RENTAL_STATUS_CHANGED | ROOM_AVAILABILITY_CHANGED | ACCOUNT_STATUS_CHANGED
 AuditAction:       see the Audit section below
@@ -106,8 +107,18 @@ The last image of a `PUBLISHED` property can't be removed. Archiving a property 
 while any room is `RESERVED`/`OCCUPIED`. Public property search can filter by room (`minRent`, `maxRent`, `roomType`,
 `occupants`): a property matches if at least one `AVAILABLE` room fits.
 
-**Viewing**: `PENDING → APPROVED | REJECTED | RESCHEDULED`, `RESCHEDULED → APPROVED | CANCELLED`,
-`APPROVED → COMPLETED | CANCELLED`, `PENDING → CANCELLED` (tenant).
+**Viewing** (implemented in `ViewingServices`; all changes go through `PATCH /viewing/:id/status`; every change is a
+conditional `updateMany` + a notification):
+
+```text
+(tenant)            → PENDING        published property; room (optional) must be AVAILABLE; time in the future, ≤ 90 days
+PENDING             → APPROVED       owner/admin; the requested time must still be in the future; scheduledAt = preferredAt
+PENDING             → REJECTED       owner/admin, optional ownerNote shown to the tenant
+PENDING | APPROVED | RESCHEDULED → RESCHEDULED   owner/admin, new scheduledAt (counts as confirmed)
+APPROVED | RESCHEDULED → COMPLETED   owner/admin, only after scheduledAt
+PENDING | APPROVED | RESCHEDULED → CANCELLED     tenant; or automatically when the room/property is removed or
+                                                  either account is deleted (the other side is notified)
+```
 
 **Payment**: `PENDING → PAID` **only** from the verified Stripe webhook. `PENDING → FAILED | CANCELLED` via Stripe events.
 FAILED/CANCELLED can be retried (a new checkout session), which sets the status back to PENDING.
@@ -174,7 +185,8 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
   in the same transaction; audit `USER_DELETED` (every delete) and
   `USER_UPDATED` (when an admin edits someone else's account).
 - **To add when those modules exist** (marked `TODO` in the service): refuse while the user has a `PENDING`/`ACTIVE` rental
-  (409); rooms → `UNAVAILABLE`; the user's `PENDING` applications and viewings → `CANCELLED` (+ notify the other party).
+  (409); the user's `PENDING` applications → `CANCELLED` (+ notify the other party). Open viewings are already cancelled
+  (`cancelOpenViewings` in `viewing.utils.ts`).
 
 ## Business rules and invariants
 

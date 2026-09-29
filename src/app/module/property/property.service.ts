@@ -18,6 +18,7 @@ import { createAuditLog } from '../../utils/auditLog'
 import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
+import { cancelOpenViewings } from '../viewing/viewing.utils'
 import {
     MAX_IMAGES_PER_PROPERTY,
     PROPERTY_SEARCHABLE_FIELDS,
@@ -513,6 +514,13 @@ const archiveProperty = async (actor: RequestUser, propertyId: string) => {
             where: { propertyId: property.id, isDeleted: false },
             data: { isDeleted: true, deletedAt, status: RoomStatus.UNAVAILABLE },
         })
+
+        await cancelOpenViewings(
+            tx,
+            { propertyId: property.id },
+            'The property was removed from listings',
+            'tenant',
+        )
 
         await createAuditLog(tx, {
             actor,

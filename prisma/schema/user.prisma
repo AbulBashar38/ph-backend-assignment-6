@@ -30,6 +30,9 @@ model User {
   // Tenants looking for a roommate (optional, at most one)
   roommateProfile RoommateProfile?
 
+  viewingRequests ViewingRequest[]
+  notifications   Notification[]
+
   @@index([role], name: "idx_user_role")
   @@index([status], name: "idx_user_status")
   @@map("users")

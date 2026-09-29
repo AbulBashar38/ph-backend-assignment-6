@@ -1,0 +1,32 @@
+// A tenant asking to see a property (optionally a specific room). Never deleted: it only changes status.
+model ViewingRequest {
+  id String @id @default(uuid(7))
+
+  preferredAt DateTime // when the tenant would like to come
+  message     String?
+
+  status      ViewingStatus @default(PENDING)
+  // The confirmed time: preferredAt when approved, or the owner's new time when rescheduled
+  scheduledAt DateTime?
+  ownerNote   String?
+  respondedAt DateTime?
+
+  cancelledAt        DateTime?
+  cancellationReason String?
+  completedAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantId   String
+  tenant     User     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  roomId     String?
+  room       Room?    @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([tenantId, status], name: "idx_viewing_tenant_status")
+  @@index([propertyId, status], name: "idx_viewing_property_status")
+  @@index([roomId], name: "idx_viewing_roomId")
+  @@map("viewing_requests")
+}
