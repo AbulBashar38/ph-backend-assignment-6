@@ -1,0 +1,42 @@
+// One monthly rent bill of a rental (requirement §15). The first one is created when the application is approved;
+// later ones by the monthly cron job. Only the signature-verified Stripe webhook sets PAID. Never deleted.
+model Payment {
+  id String @id @default(uuid(7))
+
+  periodNumber Int // 1 = the first month of the rental
+  periodStart  DateTime
+  periodEnd    DateTime // exclusive: the next period starts here
+  dueDate      DateTime
+
+  amount   Int // whole BDT, copied from rental.monthlyRent (never sent by the client)
+  currency String @default("BDT")
+
+  status             PaymentStatus @default(PENDING)
+  paidAt             DateTime?
+  failedAt           DateTime?
+  failureReason      String?
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  paymentGateway         String    @default("stripe")
+  // The current Checkout Session (the one that paid, once PAID). Reused while open, so no duplicate sessions.
+  stripeSessionId        String?   @unique
+  stripeCheckoutUrl      String?
+  stripeSessionExpiresAt DateTime?
+  // The "payment reference" shown to users and on the receipt
+  stripePaymentIntentId  String?   @unique
+  gatewayResponse        Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rentalId String
+  rental   Rental @relation(fields: [rentalId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  tenantId String
+  tenant   User   @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([rentalId, periodStart])
+  @@index([tenantId, status], name: "idx_payment_tenant_status")
+  @@index([status, dueDate], name: "idx_payment_status_due")
+  @@map("payments")
+}

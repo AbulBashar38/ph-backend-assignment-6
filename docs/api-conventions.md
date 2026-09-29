@@ -121,8 +121,9 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       · GET /(T own, O own properties, A all) · GET /:id(the tenant, the property owner, or A)
 /api/v1/rental        (implemented) GET /(T own, O own properties, A all) · GET /:id(the tenant, the owner, or A)
                       · PATCH /:id/status(COMPLETED | TERMINATED; the tenant, the owner, or A)
-/api/v1/payment       POST /pay-rent/:paymentId(T) · POST /webhook(Stripe only) · GET /my-payments(T)
-                      GET /owner-payments(O) · GET /all-payments(A) · GET /:paymentId(✱ owner-of)
+/api/v1/payment       (implemented) POST /:id/checkout(the T who owes it) · POST /webhook(Stripe only, signature)
+                      · GET /(T own, O own rentals, A all) · GET /session/:sessionId · GET /:id · GET /:id/receipt(PDF)
+                      (the tenant, the owner, or A). No route sets a payment status.
 /api/v1/notification  (implemented) GET /(✱ own, ?isRead) · GET /unread-count(✱) · PATCH /read-all(✱) · PATCH /:id/read(✱ own)
 /api/v1/admin         GET /all-users(A) · GET /user/:userId(A) · PATCH /update-user-status/:userId(A) · POST /create-admin(SUPER_ADMIN)
 /api/v1/analytics     GET /admin-analytics(A) · GET /owner-analytics(O)
@@ -190,7 +191,7 @@ registry.registerPath({
 - Body: `request: { body: jsonBody(CreatePropertyValidationZodSchema.meta({ example: {...} })) }`.
 - Multipart: `multipartBody(z.object({ images: fileField('…') }))` from `docs/registry.ts` (Swagger shows a file picker).
 - List endpoints document their `IQuery` params with a `z.object({...})` in `request.query`.
-- Tags = module name (`Auth`, `Property`, `Room`…). Public routes set `security: []`. The Stripe webhook gets the tag
-  `Payment (Stripe webhook)` and the note "Called by Stripe only".
+- Tags = module name (`Auth`, `Property`, `Room`…). Public routes set `security: []`. The Stripe webhook is in the
+  `Payment` tag with no `security` and the note "Called by Stripe only".
 - Response schemas never include `password`.
 - A route isn't done until it's registered in `x.openapi.ts`.

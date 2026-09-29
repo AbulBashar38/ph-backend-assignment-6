@@ -16,6 +16,7 @@ import { createAuditLog } from '../../utils/auditLog'
 import { createNotifications, type INotificationInput } from '../../utils/notification'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
+import { cancelUnpaidPayments, expireCheckoutSessions } from '../payment/payment.utils'
 import { RENTAL_SORTABLE_FIELDS } from './rental.constant'
 import type { IUpdateRentalStatusPayload } from './rental.interface'
 import { RentalsQueryZodSchema } from './rental.validation'
@@ -132,7 +133,7 @@ const updateRentalStatus = async (
 
     const now = new Date()
 
-    await prisma.$transaction(async (tx) => {
+    const { sessionIds } = await prisma.$transaction(async (tx) => {
         const { count } = await tx.rental.updateMany({
             where: { id: rental.id, status: { in: allowedFrom } },
             data: {
@@ -161,7 +162,12 @@ const updateRentalStatus = async (
             data: { status: RoomStatus.AVAILABLE },
         })
 
-        // TODO(payment module): cancel this rental's unpaid rent dues
+        // Unpaid bills are void once the rental ends
+        const cancelledPayments = await cancelUnpaidPayments(
+            tx,
+            rental.id,
+            `The rental was ${isComplete ? 'completed' : 'terminated'}`,
+        )
 
         const endedBy =
             actor.userId === rental.tenantId
@@ -197,9 +203,15 @@ const updateRentalStatus = async (
                 status: payload.status,
                 reason: isComplete ? null : payload.reason,
                 roomStatus: RoomStatus.AVAILABLE,
+                cancelledPayments: cancelledPayments.count,
             },
         })
+
+        return cancelledPayments
     })
+
+    // After the commit: close their open Stripe checkouts so they can't be paid (if one is, it's refunded)
+    await expireCheckoutSessions(sessionIds)
 
     return findRental(rental.id)
 }

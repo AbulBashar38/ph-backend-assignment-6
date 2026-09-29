@@ -13,6 +13,17 @@ interface IEmailTemplateData {
     'forgot-password': { name: string; email: string; otp: string; expirationMinutes: number }
     'reset-password-success': { name: string; email: string; changedAt: string }
     'welcome-email': { name: string; email: string; role: Role }
+    'payment-success': {
+        name: string
+        amount: string
+        propertyTitle: string
+        roomName: string
+        period: string
+        paidAt: string
+        reference: string
+        isFirstPayment: boolean
+        moveInDate: string
+    }
 }
 
 export type TEmailTemplate = keyof IEmailTemplateData

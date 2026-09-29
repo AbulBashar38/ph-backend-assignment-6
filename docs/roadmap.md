@@ -11,7 +11,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
       `utils/authTokens.ts`, `utils/otp.ts`, `utils/sendEmail.ts`, `utils/setAuthCookie.ts`
 - [ ] Remaining infrastructure: `lib/cron.ts` (Google, pagination, Multer/Cloudinary done)
 - [x] `config/index.ts` + `.env.example` (placeholders) for DB, JWT, super admin, Redis, SMTP, Swagger
-- [ ] Add env vars as features land: Stripe, `APPLICATION_EXPIRY_DAYS` (Google, Cloudinary done)
+- [x] Add env vars as features land (Google, Cloudinary, Stripe, `APPLICATION_EXPIRY_DAYS`)
 - [x] `server.ts` boot order: DB → Redis → mailer verify (warn only) → seeds → listen (add cron when it exists)
 - [x] Fix bugs in the starter (the example has most of them too):
   - [x] `globalErrorHandler` sends HTTP 500 for everything (use `statusCode`), and hides 4xx messages in production
@@ -70,9 +70,13 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 
 ## Phase 5: Payments (Stripe)
 
-- [ ] `lib/stripe.ts`, `pay-rent` checkout session (lock, reuse an open session)
-- [ ] Webhook (raw body before `express.json()`, signature, idempotent conditional update, amount check)
-- [ ] `payment-success` email with a `pdfkit` receipt (example invoice code); my/owner/all/single payment lists
+- [x] `Payment` model (one bill per rent month); month 1 created at approval
+- [x] `lib/stripe.ts`, `POST /payment/:id/checkout` (Redis lock, reuse an open session, 502 on Stripe errors)
+- [x] Webhook (raw body before `express.json()`, signature, idempotent conditional update, amount check, rental
+      activation + room OCCUPIED, automatic refund of double / late / wrong-amount payments)
+- [x] `payment-success` email with a `pdfkit` receipt; receipt download; role-scoped list, details, session lookup
+- [x] Ending a rental cancels its unpaid bills and expires their open checkouts
+- [ ] Cron: `generateRentDues` (month 2+), `sendRentReminders`, `reconcileStalePayments` (with the cron step)
 
 ## Phase 6: Notifications, audit, admin, analytics, cron
 

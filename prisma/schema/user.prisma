@@ -34,6 +34,7 @@ model User {
   applications    Application[]
   tenantRentals   Rental[]         @relation("RentalTenant")
   ownerRentals    Rental[]         @relation("RentalOwner")
+  payments        Payment[]
   notifications   Notification[]
 
   @@index([role], name: "idx_user_role")

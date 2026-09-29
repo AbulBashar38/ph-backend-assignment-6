@@ -28,6 +28,8 @@ export default {
     cloudinary_cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
     cloudinary_api_key: process.env.CLOUDINARY_API_KEY!,
     cloudinary_api_secret: process.env.CLOUDINARY_API_SECRET!,
+    stripe_secret_key: process.env.STRIPE_SECRET_KEY!,
+    stripe_webhook_secret: process.env.STRIPE_WEBHOOK_SECRET!,
     // Days a PENDING application stays open before it expires
     application_expiry_days: Number(process.env.APPLICATION_EXPIRY_DAYS) || 7,
     swagger_enabled: process.env.SWAGGER_ENABLED,

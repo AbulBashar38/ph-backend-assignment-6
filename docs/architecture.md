@@ -53,8 +53,8 @@ Key registry. Use kebab-case prefixes like the example's (`patient-registration-
 | `otp-cooldown:{purpose}:{email}` | `1` | 60 s | resend throttle |
 | `refresh-token:{userId}:{jti}` | `active`, then `used:<ms timestamp>` | refresh TTL (7 d) | rotation + reuse detection; logout deletes one, password change deletes all |
 | `roommate-matches:{tenantId}` | JSON | 10 min | **Not used yet.** Optional cache if matching ever gets slow (currently computed per request) |
-| `payment-lock:{rentPaymentId}` | `1` | 30 s | stops double checkout creation |
-| `rent-reminder-sent:{rentPaymentId}:{daysBefore}` | `1` | 7 d | reminder de-duplication |
+| `payment-lock:{paymentId}` | random token | 30 s | stops double checkout creation; released only by its owner |
+| `rent-reminder-sent:{paymentId}:{daysBefore}` | `1` | 7 d | reminder de-duplication |
 
 ## Email (`nodemailer` + `ejs`)
 
@@ -99,7 +99,7 @@ says what happened (put codes in the subject: `"482913 is your … code"`).
 | `welcome-email.ejs` | `name, email, role` (steps + CTA differ for OWNER / TENANT) |
 | `viewing-status.ejs` | `name, propertyTitle, status, scheduledAt?` |
 | `application-status.ejs` | `name, propertyTitle, roomName, status, reason?` |
-| `payment-success.ejs` | `name, amount, period, reference, paidAt` (+ `pdfkit` receipt attached, as in the example's invoice) |
+| `payment-success.ejs` | `name, amount, propertyTitle, roomName, period, paidAt, reference, isFirstPayment, moveInDate` (+ the `pdfkit` receipt from `payment.receipt.ts` attached) |
 | `rent-reminder.ejs` | `name, amount, dueDate, daysLeft` |
 | `account-status.ejs` | `name, status` |
 
@@ -152,11 +152,14 @@ a user could attach, or later delete, someone else's file) and a cron job for ab
 
 ## Payments (`stripe`)
 
-`lib/stripe.ts`: `export const stripe = new Stripe(config.stripe_secret_key)`. The flow is in [domain.md](domain.md#payments-stripe).
+`lib/stripe.ts`: `export const stripe = new Stripe(config.stripe_secret_key, { maxNetworkRetries: 2, timeout: 20_000 })`.
+The flow is in [domain.md](domain.md#payments-stripe).
 
-- The webhook needs the raw body. In `app.ts`, **before** `express.json()`:
-  `app.post('/api/v1/payment/webhook', express.raw({ type: 'application/json' }), PaymentController.handleStripeWebhook)`
-- Local dev: `stripe listen --forward-to localhost:5000/api/v1/payment/webhook` → copy the `whsec_...` into `STRIPE_WEBHOOK_SECRET`.
+- The webhook needs the raw body. `app.ts` mounts `app.use('/api/v1/payment/webhook', express.raw({ type: '*/*' }))`
+  **before** `express.json()` (which then skips the already-parsed body); the route itself is in `payment.route.ts`.
+- Local dev: `stripe listen --forward-to localhost:<PORT>/api/v1/payment/webhook` → copy the `whsec_...` into `STRIPE_WEBHOOK_SECRET`.
+  Events to enable for a Dashboard endpoint: `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.async_payment_failed`, `checkout.session.expired`.
   Test cards: `4242 4242 4242 4242` (success), `4000 0000 0000 0002` (declined).
 
 ## Cron (`node-cron`), as in `example-backend/src/app/lib/cron.ts`
@@ -180,7 +183,7 @@ Put the logic in a service method (so it's callable and testable), and keep the 
 
 | Function | Schedule | Does |
 |---|---|---|
-| `generateRentDues` | `0 1 * * *` | For each ACTIVE rental, create the next `RentPayment` when due within 7 days (`@@unique([rentalId, periodStart])`, `skipDuplicates`) |
+| `generateRentDues` | `0 1 * * *` | For each ACTIVE rental, create the next `Payment` with `createRentPayment(tx, rental, n)` when due within 7 days (`@@unique([rentalId, periodStart])` makes it safe to re-run) |
 | `sendRentReminders` | `0 9 * * *` | PENDING rent payments due in 3 days / 1 day → notification + `rent-reminder.ejs` (de-duplicated by the Redis key) |
 | `expirePendingApplications` | `0 * * * *` | PENDING applications past `expiresAt` → EXPIRED + notify the tenant + audit |
 | `expireListings` | `30 0 * * *` | PUBLISHED properties past `expiresAt` → INACTIVE |

@@ -29,6 +29,8 @@ model Rental {
   roomId        String
   room          Room        @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
+  payments Payment[]
+
   @@index([tenantId, status], name: "idx_rental_tenant_status")
   @@index([ownerId, status], name: "idx_rental_owner_status")
   @@index([roomId], name: "idx_rental_roomId")

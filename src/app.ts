@@ -10,6 +10,7 @@ import { notFound } from './app/middleware/notFound'
 import { ApplicationRoutes } from './app/module/application/application.route'
 import { AuthRoutes } from './app/module/auth/auth.route'
 import { NotificationRoutes } from './app/module/notification/notification.route'
+import { PaymentRoutes } from './app/module/payment/payment.route'
 import { PropertyRoutes } from './app/module/property/property.route'
 import { RentalRoutes } from './app/module/rental/rental.route'
 import { RoomRoutes } from './app/module/room/room.route'
@@ -25,6 +26,9 @@ app.use(
         credentials: true,
     }),
 )
+
+// Stripe webhooks need the raw bytes to verify the signature. Parsed first, so express.json() skips this path.
+app.use('/api/v1/payment/webhook', express.raw({ type: '*/*', limit: '1mb' }))
 
 // Enable URL-encoded form data parsing
 app.use(express.urlencoded({ extended: true }))
@@ -49,6 +53,7 @@ app.use('/api/v1/roommate', RoommateRoutes)
 app.use('/api/v1/viewing', ViewingRoutes)
 app.use('/api/v1/application', ApplicationRoutes)
 app.use('/api/v1/rental', RentalRoutes)
+app.use('/api/v1/payment', PaymentRoutes)
 app.use('/api/v1/notification', NotificationRoutes)
 
 // Basic route

@@ -1,0 +1,36 @@
+<%- include('partials/layout-start', {
+  title: 'Payment received',
+  preheader: `We received your rent payment of ${amount} for ${propertyTitle}.`,
+}) %>
+<%- include('partials/heading', { text: 'Payment received' }) %>
+<p style="margin: 0 0 12px 0;">Hi <%= name %>,</p>
+<p style="margin: 0 0 20px 0;">
+  Thanks! Your rent payment was successful. Your receipt is attached as a PDF.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 4px 0; border: 1px solid #e2e8f0; border-radius: 10px;">
+  <% const rows = [
+    ['Amount', amount],
+    ['Property', propertyTitle],
+    ['Room', roomName],
+    ['Period', period],
+    ['Paid on', paidAt],
+    ['Reference', reference],
+  ] -%>
+  <% rows.forEach(([label, value], index) => { const border = index < rows.length - 1 ? 'border-bottom: 1px solid #e2e8f0;' : '' -%>
+  <tr>
+    <td style="padding: 12px 16px; font-size: 13px; line-height: 20px; color: #64748b; <%= border %>"><%= label %></td>
+    <td align="right" style="padding: 12px 16px; font-size: 13px; line-height: 20px; color: #0f172a; font-weight: 600; <%= border %>"><%= value %></td>
+  </tr>
+  <% }) -%>
+</table>
+
+<%- include('partials/button', { href: `${frontendUrl}/dashboard/payments`, label: 'View your payments' }) %>
+
+<% if (isFirstPayment) { -%>
+<%- include('partials/callout', {
+  title: 'Your rental is now active',
+  text: `The room is yours from ${moveInDate}. Contact the owner through the platform to arrange the keys.`,
+}) %>
+<% } -%>
+<%- include('partials/layout-end') %>

@@ -19,6 +19,7 @@ import { createNotifications } from '../../utils/notification'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
 import { formatEmailDate } from '../../utils/sendEmail'
+import { createRentPayment } from '../payment/payment.utils'
 import { publiclyVisibleProperty } from '../property/property.service'
 import { APPLICATION_SORTABLE_FIELDS, pendingKeyFor } from './application.constant'
 import type {
@@ -318,6 +319,9 @@ const approveApplication = async (actor: RequestUser, application: TApplication)
                 },
             })
 
+            // The first month's bill; paying it activates the rental (the webhook) and the room becomes OCCUPIED
+            const firstPayment = await createRentPayment(tx, rental, 1)
+
             // The room is taken: everyone else waiting for it is declined
             const competitors = await tx.application.findMany({
                 where: {
@@ -349,6 +353,7 @@ const approveApplication = async (actor: RequestUser, application: TApplication)
                     data: {
                         applicationId: application.id,
                         rentalId: rental.id,
+                        paymentId: firstPayment.id,
                         propertyId: application.property.id,
                     },
                 },
@@ -374,6 +379,7 @@ const approveApplication = async (actor: RequestUser, application: TApplication)
                     status: ApplicationStatus.APPROVED,
                     roomStatus: RoomStatus.RESERVED,
                     rentalId: rental.id,
+                    firstPaymentId: firstPayment.id,
                     competitorsRejected: competitors.length,
                 },
             })

@@ -22,7 +22,7 @@ role, so services check it (e.g. `findActiveOwner` in `property.service.ts`).
 | `ViewingRequest` | tenantId, propertyId, roomId?, preferredAt, message?, status, scheduledAt?, ownerNote?, respondedAt?, cancelledAt?, cancellationReason?, completedAt? | **Implemented.** Never deleted, only changes status. One open request per tenant per property/room |
 | `Application` | tenantId, propertyId, roomId, moveInDate, message?, status, expiresAt, reviewedAt?, rejectionReason?, cancelledAt?, cancellationReason?, pendingKey? @unique | **Implemented.** Never deleted. `pendingKey` = `tenantId:roomId` while PENDING (null after), so the database refuses a second pending application |
 | `Rental` | applicationId @unique, tenantId, ownerId, propertyId, roomId, monthlyRent (Int snapshot), startDate, endDate?, status, activatedAt?, completedAt?, terminatedAt?, terminationReason?, liveRoomKey? @unique | **Implemented.** Open-ended monthly, never deleted. `liveRoomKey` = roomId while PENDING/ACTIVE, so the database refuses two live rentals for one room |
-| `Payment` | rentalId, tenantId, amount Decimal(10,2), currency @default("BDT"), paymentGateway @default("stripe"), periodStart, periodEnd, dueDate, status, stripeSessionId? @unique, stripePaymentIntentId? @unique, paidAt?, gatewayResponse Json? | One row per rent period, shaped like the example's `Payment`. `@@unique([rentalId, periodStart])` |
+| `Payment` | rentalId, tenantId, periodNumber, periodStart, periodEnd (exclusive), dueDate, amount **Int (whole taka)**, currency @default("BDT"), status, paidAt?, failedAt?, failureReason?, cancelledAt?, cancellationReason?, paymentGateway @default("stripe"), stripeSessionId? @unique, stripeCheckoutUrl?, stripeSessionExpiresAt?, stripePaymentIntentId? @unique (the payment reference), gatewayResponse Json? (never returned) | **Implemented.** One row per rent month, never deleted. `@@unique([rentalId, periodStart])` |
 | `Notification` | userId, type (`NotificationType`), title, message, data Json? (ids to link to), isRead, readAt? | **Implemented.** Created with `createNotifications(tx, [...])` (`utils/notification.ts`) in the event's transaction |
 | `AuditLog` | actorId?, actorRole?, action (enum), resource, resourceId, previousData Json?, newData Json?, createdAt | Append-only. `actorId` is null for cron actions |
 
@@ -48,9 +48,10 @@ Preference:        YES | NO | NO_PREFERENCE          (smoking, pets: "I do / fin
 LifestyleTag:      QUIET | SOCIAL | CLEAN | STUDIOUS | WORK_FROM_HOME | FITNESS | COOKING | GAMING | MUSIC | VEGETARIAN
                    | RELIGIOUS | PARTY
 NotificationType:  (in the enum now) VIEWING_REQUESTED | VIEWING_APPROVED | VIEWING_REJECTED | VIEWING_RESCHEDULED
-                   | VIEWING_CANCELLED | VIEWING_COMPLETED; (planned) APPLICATION_SUBMITTED | APPLICATION_APPROVED | APPLICATION_REJECTED
-                   | APPLICATION_CANCELLED | APPLICATION_EXPIRED | PAYMENT_SUCCESS | PAYMENT_RECEIVED | RENT_DUE
-                   | RENTAL_STATUS_CHANGED | ROOM_AVAILABILITY_CHANGED | ACCOUNT_STATUS_CHANGED
+                   | VIEWING_CANCELLED | VIEWING_COMPLETED | APPLICATION_SUBMITTED | APPLICATION_APPROVED
+                   | APPLICATION_REJECTED | APPLICATION_CANCELLED | RENTAL_STATUS_CHANGED | PAYMENT_SUCCESS
+                   | PAYMENT_RECEIVED | PAYMENT_FAILED | PAYMENT_REFUNDED; (planned) APPLICATION_EXPIRED | RENT_DUE
+                   | ROOM_AVAILABILITY_CHANGED | ACCOUNT_STATUS_CHANGED
 AuditAction:       see the Audit section below
 ```
 
@@ -129,8 +130,9 @@ PENDING | APPROVED | RESCHEDULED → CANCELLED     tenant; or automatically when
                                                   either account is deleted (the other side is notified)
 ```
 
-**Payment**: `PENDING → PAID` **only** from the verified Stripe webhook. `PENDING → FAILED | CANCELLED` via Stripe events.
-FAILED/CANCELLED can be retried (a new checkout session), which sets the status back to PENDING.
+**Payment**: `PENDING → PAID` **only** from the verified Stripe webhook. `PENDING → FAILED` (async payment failed) or
+`CANCELLED` (checkout expired) via Stripe events. While the rental is live, FAILED/CANCELLED can be retried (a new
+checkout session sets the status back to PENDING). When the rental ends, unpaid bills become CANCELLED for good.
 
 ## Soft delete (applies to every delete)
 
@@ -210,10 +212,11 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
    - Every **other** PENDING application for the room → REJECTED ("The room was rented to another applicant").
    - Notifications (approved tenant + rejected competitors) and audit logs (`APPLICATION_APPROVED`, `RENTAL_CREATED`).
    - Two approvals racing for one room: exactly one wins (tested); a unique-key clash is also turned into 409.
-   - The first rent `Payment` is created by the payments module (next).
+   - The month-1 `Payment` is created in the same transaction (`createRentPayment`); paying it activates the rental.
 5. `expiresAt = createdAt + APPLICATION_EXPIRY_DAYS` on application create.
 6. An approved application always has exactly one rental (`Rental.applicationId @unique`).
-7. A PAID `Payment` has a `stripePaymentIntentId`, and Stripe's `amount_total` equalled `amount × 100`.
+7. A PAID `Payment` has a `stripePaymentIntentId`, and Stripe's `amount_total` equalled `amount × 100` in `bdt`
+   (otherwise the money is refunded and the bill is FAILED).
 8. BLOCKED users can't log in. All their refresh tokens are revoked (`authTokenUtils.revokeAllRefreshTokens`), and their properties are hidden from public search.
 9. Users can see only their own private data. Owners see applications/viewings/payments for **their** properties only.
 
@@ -232,44 +235,61 @@ transaction, which is a bug; don't copy it. Pass `tx` into helpers: `createAudit
 
 ## Payments (Stripe)
 
-Same shape as the example's bKash flow (create → redirect → gateway result → mark paid → email with a PDF invoice),
-but with Stripe Checkout, and the **webhook** (not the browser redirect) is what marks a payment PAID.
-Amounts are `Decimal` taka, and are sent to Stripe as `Math.round(Number(amount) * 100)` in `bdt`.
+Implemented: `PaymentServices`, helpers in `payment.utils.ts`, receipt in `payment.receipt.ts`.
+
+**Bills.** One `Payment` per rent month, created by the system: month 1 inside `approveApplication`
+(`createRentPayment(tx, rental, 1)`), later months by the `generateRentDues` cron (next). Periods are counted from
+`rental.startDate` (`addMonths(startDate, n - 1)`, not chained, so the 31st doesn't drift), `periodEnd` is exclusive,
+`dueDate = periodStart` (rent is paid in advance), `amount` = `rental.monthlyRent` in **whole taka (Int)**.
+The client never sends an amount.
 
 ```text
-POST /api/v1/payment/pay-rent/:paymentId   (TENANT who owns it)
-  → SET payment-lock:{paymentId} NX EX 30 (409 if held)
-  → Payment must be PENDING/FAILED/CANCELLED and its rental not TERMINATED
-  → an open, unexpired stripeSessionId → return its URL (no duplicate sessions)
-  → stripe.checkout.sessions.create({
-        mode: 'payment', customer_email: user.email,
-        line_items: [{ price_data: { currency: 'bdt', unit_amount, product_data: { name: 'Rent – <room> – <period>' } }, quantity: 1 }],
-        metadata: { paymentId }, client_reference_id: paymentId,
-        success_url: `${config.frontend_url}/dashboard/my-payments?status=success&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url:  `${config.frontend_url}/dashboard/my-payments?status=cancel`,
-        expires_at: now + 30 min,
-    })
-  → update Payment { status: PENDING, stripeSessionId, gatewayResponse: session } → 200 { paymentUrl: session.url }
+POST /api/v1/payment/:id/checkout   (the TENANT who owes it; no body)
+  → 403 not your bill · 409 already PAID · 409 rental not PENDING/ACTIVE ("This Rental Has Ended…")
+  → SET payment-lock:{id} <token> NX EX 30 (409 if held); released in finally only if the token is still ours
+  → bill PENDING with a session: retrieve it. complete → 409 "Being Processed" (webhook on its way);
+    open with ≥ 5 min left → return it (no duplicate sessions); about to expire → expire it, then make a new one
+  → stripe.checkout.sessions.create({ mode: 'payment', customer_email, client_reference_id: id,
+        metadata + payment_intent_data.metadata: { paymentId, rentalId },
+        line_items: [{ price_data: { currency: 'bdt', unit_amount: amount * 100, product_data }, quantity: 1 }],
+        success_url: {FRONTEND}/dashboard/payments?status=success&session_id={CHECKOUT_SESSION_ID},
+        cancel_url:  {FRONTEND}/dashboard/payments?status=cancelled&payment_id={id},
+        expires_at: now + 31 min })                         Stripe error → 502
+  → updateMany({ id, status in PENDING|FAILED|CANCELLED } → PENDING + stripeSessionId/CheckoutUrl/ExpiresAt)
+    count 0 → expire the new session, 409  → 200 { paymentUrl, sessionId, expiresAt }
 
-POST /api/v1/payment/webhook   (Stripe only; raw body; no auth; mounted before express.json())
-  → stripe.webhooks.constructEvent(req.body, req.headers['stripe-signature'], config.stripe_webhook_secret) → 400 on failure
-  → checkout.session.completed with payment_status 'paid' (or checkout.session.async_payment_succeeded):
-      amount_total / currency mismatch → Payment FAILED + audit, stop
-      prisma.$transaction(async (tx) => {
-        const { count } = await tx.payment.updateMany({ where: { id, status: { not: PaymentStatus.PAID } },
-                                                        data: { status: PAID, paidAt, stripePaymentIntentId, gatewayResponse } })
-        if (count === 0) return            // duplicate delivery: already processed
-        rental PENDING → ACTIVE, room RESERVED → OCCUPIED (first payment only)
-        notifications (tenant PAYMENT_SUCCESS, owner PAYMENT_RECEIVED) + audit PAYMENT_COMPLETED
-      })
-      after commit: pdfkit receipt (the example's invoice code) → sendEmail('payment-success', ..., attachments)
-  → checkout.session.async_payment_failed → FAILED + notify the tenant;  checkout.session.expired → CANCELLED
-  → respond 200 { received: true } for every verified event, including ignored types
+POST /api/v1/payment/webhook   (Stripe only; express.raw() for this path is mounted in app.ts before express.json())
+  → stripe.webhooks.constructEvent(rawBody, Stripe-Signature, STRIPE_WEBHOOK_SECRET) → 400 on failure
+  → no metadata.paymentId / unknown bill / other event types → 200, ignored
+  → checkout.session.completed (payment_status 'paid') | async_payment_succeeded → settle:
+      amount_total ≠ amount × 100 or currency ≠ bdt → FAILED (+ audit PAYMENT_FAILED) and refund
+      $transaction: lock the rental row FIRST (PENDING → ACTIVE + activatedAt, else a no-op ACTIVE → ACTIVE update;
+                    neither matched → rental ended → rollback, refund)
+                    payment updateMany({ status in PENDING|FAILED|CANCELLED } → PAID, paidAt, stripeSessionId,
+                    stripePaymentIntentId, gatewayResponse); count 0 → already PAID → rollback:
+                        same session = redelivery (nothing) · other session = double payment → refund
+                    first month: room RESERVED → OCCUPIED
+                    notifications PAYMENT_SUCCESS (tenant) + PAYMENT_RECEIVED (owner), audit PAYMENT_COMPLETED
+      after commit: receipt email (payment-success.ejs + pdfkit PDF from payment.receipt.ts), sendEmailSafely
+  → checkout.session.completed with 'unpaid' → nothing yet (async method still processing)
+  → async_payment_failed → FAILED (only the current session, only from PENDING) + PAYMENT_FAILED notification + audit
+  → expired → CANCELLED (only the current session, only from PENDING); the rent is still due, the tenant can pay again
+  → an error while processing → 500, so Stripe retries (everything above is idempotent)
 
-GET /api/v1/payment/my-payments | owner-payments | all-payments | /:paymentId   (example read patterns)
+Refunds: stripe.refunds.create({ payment_intent }, { idempotencyKey: `refund-${paymentIntentId}` }), then one
+PAYMENT_REFUNDED audit + notification per PaymentIntent (checked before writing, so redeliveries don't duplicate).
+
+GET /payment (T own · O own rentals · A all; ?status&rentalId&propertyId&tenantId) · GET /payment/:id
+GET /payment/session/:sessionId (the success page polls until PAID) · GET /payment/:id/receipt (PDF, PAID only)
 ```
 
-Rules: the client never sends an amount (it's always `Payment.amount`). No endpoint sets PAID. Admin payment routes are read-only.
+**Ending a rental** (`updateRentalStatus`) cancels its unpaid bills in the same transaction (`cancelUnpaidPayments`,
+reason "The rental was completed/terminated") and, after the commit, expires their open Stripe sessions
+(`expireCheckoutSessions`). If one is paid anyway, the webhook sees the rental isn't live and refunds it.
+Rental ending and settlement both lock the rental row first, so they can't interleave.
+
+Rules: no endpoint sets a status on a payment; admin payment routes are read-only; `gatewayResponse` (the raw
+session) is stored but never returned; payments are never deleted.
 
 ## Roommate matching (implemented: `RoommateServices.getMatches`, scoring in `roommate.matching.ts`)
 
@@ -309,7 +329,7 @@ Append-only; `actorId`/`actorRole` of whoever acted (null for cron), `resource` 
 `newData` holding **only the changed fields**. Always written inside the same transaction as the change.
 Add new actions to the `AuditAction` enum as modules are built. **In the enum now:** `USER_UPDATED, USER_DELETED,
 PROPERTY_CREATED, PROPERTY_UPDATED, PROPERTY_PUBLISHED, PROPERTY_DISABLED, PROPERTY_ARCHIVED, PROPERTY_SUSPENDED,
-PROPERTY_RESTORED`. **Planned:** `ROOM_CREATED,
-ROOM_STATUS_CHANGED, APPLICATION_SUBMITTED, APPLICATION_APPROVED, APPLICATION_REJECTED, APPLICATION_CANCELLED,
-APPLICATION_EXPIRED, RENTAL_CREATED, RENTAL_STATUS_CHANGED, PAYMENT_COMPLETED, PAYMENT_FAILED, USER_BLOCKED,
-USER_ACTIVATED, VIEWING_STATUS_CHANGED`
+PROPERTY_RESTORED, ROOM_CREATED, ROOM_UPDATED, ROOM_STATUS_CHANGED, ROOM_ARCHIVED, APPLICATION_SUBMITTED,
+APPLICATION_APPROVED, APPLICATION_REJECTED, APPLICATION_CANCELLED, RENTAL_CREATED, RENTAL_STATUS_CHANGED,
+PAYMENT_COMPLETED, PAYMENT_FAILED, PAYMENT_REFUNDED` (payment actions are written by the webhook with a null actor).
+**Planned:** `APPLICATION_EXPIRED, USER_BLOCKED, USER_ACTIVATED, VIEWING_STATUS_CHANGED`
