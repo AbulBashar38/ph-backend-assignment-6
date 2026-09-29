@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import httpStatus from 'http-status'
+import type { IQuery } from '../../interfaces'
 import type { RequestUser } from '../../middleware/checkAuth'
 import { catchAsync } from '../../utils/catchAsync'
 import { sendResponse } from '../../utils/sendResponse'
@@ -49,7 +50,38 @@ const updateMyProfileStatus = catchAsync(async (req: Request, res: Response) => 
     })
 })
 
+const getMatches = catchAsync(async (req: Request, res: Response) => {
+    const { data, meta } = await RoommateServices.getMatches(
+        req.user as RequestUser,
+        req.query as IQuery,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Roommate Matches Retrieved Successfully',
+        data,
+        meta,
+    })
+})
+
+const getProfileById = catchAsync(async (req: Request, res: Response) => {
+    const result = await RoommateServices.getProfileById(
+        req.user as RequestUser,
+        req.params.id as string,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Roommate Profile Retrieved Successfully',
+        data: result,
+    })
+})
+
 export const RoommateController = {
+    getMatches,
+    getProfileById,
     createMyProfile,
     getMyProfile,
     updateMyProfile,

@@ -4,9 +4,12 @@ import {
     authSecurity,
     errorResponses,
     jsonBody,
+    paginatedResponse,
+    paginationQueryParams,
     registry,
     successResponse,
 } from '../../docs/registry'
+import { MATCH_SORTABLE_FIELDS, MATCH_WEIGHTS } from './roommate.constant'
 import {
     CreateRoommateProfileValidationZodSchema,
     UpdateRoommateProfileStatusValidationZodSchema,
@@ -145,5 +148,109 @@ registry.registerPath({
     responses: {
         200: successResponse('Roommate Search Turned Off', RoommateProfileSchema),
         ...errorResponses(400, 401, 403, 404),
+    },
+})
+
+// ---------- matching ----------
+
+const factorSchema = z.object({
+    score: z.number().int().meta({ example: 20 }),
+    max: z.number().int().meta({ example: 25 }),
+    label: z.enum(['Highly Compatible', 'Compatible', 'Partially Compatible', 'Not Compatible']),
+})
+
+const CompatibilitySchema = z
+    .object({
+        score: z.number().int().meta({ description: '0–100', example: 87 }),
+        label: z.enum([
+            'Highly Compatible',
+            'Compatible',
+            'Partially Compatible',
+            'Low Compatibility',
+        ]),
+        breakdown: z.object(
+            Object.fromEntries(Object.keys(MATCH_WEIGHTS).map((factor) => [factor, factorSchema])),
+        ),
+    })
+    .meta({ id: 'Compatibility' })
+
+const RoommateMatchSchema = z
+    .object({
+        id: z
+            .string()
+            .meta({ description: 'Roommate profile ID (use it with GET /roommate/profile/{id})' }),
+        age: z.number().int(),
+        budgetMin: z.number().int(),
+        budgetMax: z.number().int(),
+        preferredCity: z.string(),
+        preferredArea: z.string().nullable(),
+        moveInDate: z.iso.datetime(),
+        smokingPreference: z.enum(Preference),
+        petPreference: z.enum(Preference),
+        sleepSchedule: z.enum(SleepSchedule),
+        lifestyle: z.array(z.enum(LifestyleTag)),
+        genderPreference: z.enum(Gender).nullable(),
+        bio: z.string().nullable(),
+        updatedAt: z.iso.datetime(),
+        tenant: z.object({
+            id: z.string(),
+            name: z.string(),
+            imageUrl: z.string().nullable(),
+            gender: z.enum(Gender).nullable(),
+            occupation: z.string().nullable(),
+        }),
+        compatibility: CompatibilitySchema,
+    })
+    .meta({ id: 'RoommateMatch' })
+
+const scoringHelp =
+    '**Score (0–100):** ' +
+    Object.entries(MATCH_WEIGHTS)
+        .map(([factor, weight]) => `${factor} ${weight}`)
+        .join(', ') +
+    '. Budget = how much of the narrower range overlaps; location = same area (or no area preference) full, same city ' +
+    'half; move-in ≤14 days apart full, ≤30 days about half; lifestyle = shared tags; smoking / pets = same answer ' +
+    'full, "don\'t mind" half, yes vs no zero; sleep = same full, one FLEXIBLE half.'
+
+registry.registerPath({
+    method: 'get',
+    path: '/roommate/matches',
+    tags: [TAG],
+    summary: 'Find compatible roommates (TENANT with roommate search on)',
+    description:
+        'Needs your own roommate profile with search **on** (no profile → 404, search off → 403).\n\n' +
+        '**Who shows up:** other tenants with search on and an active account, in the **same preferred city**, with an ' +
+        '**overlapping budget**, and whose gender fits your `genderPreference` **and** whose `genderPreference` fits ' +
+        'your gender.\n\n' +
+        `${scoringHelp}\n\n` +
+        'Sorted best match first. `minScore` hides weaker matches. Email and phone are never included.',
+    security: authSecurity,
+    request: {
+        query: z.object({
+            minScore: z.string().optional().meta({ description: '0–100', example: '60' }),
+            ...paginationQueryParams(MATCH_SORTABLE_FIELDS),
+        }),
+    },
+    responses: {
+        200: paginatedResponse('Roommate Matches Retrieved Successfully', RoommateMatchSchema),
+        ...errorResponses(400, 401, 403, 404),
+    },
+})
+
+registry.registerPath({
+    method: 'get',
+    path: '/roommate/profile/{id}',
+    tags: [TAG],
+    summary:
+        "View another tenant's roommate profile with your compatibility (TENANT with search on)",
+    description:
+        'Same visibility rules as matches (search on, active account, gender preferences both ways), but the city and ' +
+        "budget don't have to match: the score shows how compatible you are. Hidden, deleted or your own profile → 404 " +
+        '(use `GET /roommate/profile/me` for yours).',
+    security: authSecurity,
+    request: { params: z.object({ id: z.string().meta({ description: 'Roommate profile ID' }) }) },
+    responses: {
+        200: successResponse('Roommate Profile Retrieved Successfully', RoommateMatchSchema),
+        ...errorResponses(401, 403, 404),
     },
 })

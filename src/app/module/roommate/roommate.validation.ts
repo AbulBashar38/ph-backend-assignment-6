@@ -98,3 +98,13 @@ export const UpdateRoommateProfileValidationZodSchema = z
 export const UpdateRoommateProfileStatusValidationZodSchema = z.object({
     isActive: z.boolean('isActive Must Be true Or false'),
 })
+
+// GET /roommate/matches filters (page/limit come from paginationHelper)
+export const RoommateMatchesQueryZodSchema = z.object({
+    minScore: z
+        .string()
+        .regex(/^\d+$/, 'minScore Must Be A Whole Number From 0 To 100')
+        .transform(Number)
+        .refine((value) => value <= 100, 'minScore Must Be A Whole Number From 0 To 100')
+        .optional(),
+})

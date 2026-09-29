@@ -251,26 +251,37 @@ GET /api/v1/payment/my-payments | owner-payments | all-payments | /:paymentId   
 
 Rules: the client never sends an amount (it's always `Payment.amount`). No endpoint sets PAID. Admin payment routes are read-only.
 
-## Roommate matching (`roommate.service.ts`)
+## Roommate matching (implemented: `RoommateServices.getMatches`, scoring in `roommate.matching.ts`)
 
-1. Candidates come from the DB: other active roommate profiles, same `preferredCity`, overlapping budget, and `tenantId != mine`,
-   excluding blocked/deleted users. Limit ~500.
-2. Score each candidate in code (0–100, weights as a `const` object at the top of `roommate.service.ts`):
+**Who may browse:** a tenant with their own roommate profile and search **on** (no profile → 404, search off → 403).
+You can't browse others without being visible yourself.
 
-| Factor | Weight | Rule |
+**Who shows up** (database filter, then scored in code, at most 500 candidates, newest first):
+
+1. Other profiles with `isActive`, whose account is a live, `ACTIVE` tenant.
+2. Gender preference respected **both ways**: their gender fits my `genderPreference` (null = any) **and** my gender
+   fits theirs. This is a hard filter, not scored.
+3. Same `preferredCity` (case-insensitive) and an overlapping budget (`their.min ≤ my.max` and `their.max ≥ my.min`).
+
+`GET /roommate/profile/:id` uses rules 1–2 only, so a profile in another city can still be opened and its score shows the fit.
+
+**Score (0–100)**, weights in `roommate.constant.ts`; each factor also gets a label:
+
+| Factor | Weight | Rule (ratio × weight, rounded) |
 |---|---|---|
-| Budget | 25 | overlap ratio of `[min,max]` ranges |
-| Location | 20 | same area 20, same city 10 |
-| Move-in date | 15 | ≤14 days apart 15, ≤30 days 8, else 0 |
-| Lifestyle tags | 10 | Jaccard similarity × 10 |
-| Smoking | 10 | compatible 10, NO_PREFERENCE 5, conflict 0 |
+| Budget | 25 | overlap ÷ the narrower range (a single-value budget inside the other range = full) |
+| Location | 20 | same area, or either side has no area preference → full; same city only → half |
+| Move-in | 15 | ≤ 14 days apart → full, ≤ 30 days → 8/15, else 0 |
+| Lifestyle | 10 | shared tags ÷ all tags (Jaccard); no tags on either side → half |
+| Smoking | 10 | same answer → full, "don't mind" on one side → half, YES vs NO → 0 |
 | Pets | 10 | same as smoking |
-| Sleep schedule | 10 | equal 10, one FLEXIBLE 5, else 0 |
-| Gender preference | hard filter | exclude if either side's preference is violated |
+| Sleep | 10 | same → full, one FLEXIBLE → half, early bird vs night owl → 0 |
 
-3. Return a sorted, paginated list with `{ score, breakdown: { budget: 'Compatible', ... } }`.
-   Label bands: ≥80% "Highly Compatible", ≥60% "Compatible", ≥40% "Partially Compatible", else "Low".
-4. Cache the results in `roommate-matches:{tenantId}` (10 min) and delete that key when the tenant's profile changes.
+Factor label: ≥ 80% of its weight "Highly Compatible", ≥ 50% "Compatible", > 0 "Partially Compatible", else "Not Compatible".
+Overall: ≥ 80 "Highly Compatible", ≥ 60 "Compatible", ≥ 40 "Partially Compatible", else "Low Compatibility".
+The score is symmetric (A→B equals B→A). Results are sorted best first, then most recently updated; `minScore` filters,
+and pagination is applied after scoring. Matches never include email, phone or account details. No Redis cache (not
+needed at this size).
 
 ## Audit log (`AuditLog` model, `createAuditLog(tx, …)` in `utils/auditLog.ts`)
 

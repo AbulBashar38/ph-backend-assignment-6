@@ -54,7 +54,8 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 ## Phase 3: Matching & viewings
 
 - [x] Roommate profile create/get/update, search on/off (`/roommate/profile`, `/profile/me`, `/profile/me/status`)
-- [ ] Matching score + Redis cache
+- [x] Matching: `GET /roommate/matches` (0–100 score + per-factor breakdown, gender both ways, city + budget filter),
+      `GET /roommate/profile/:id` (no Redis cache: not needed at this size)
 - [ ] Viewing requests (request, cancel, owner update-status, lists)
 
 ## Phase 4: Applications & rentals

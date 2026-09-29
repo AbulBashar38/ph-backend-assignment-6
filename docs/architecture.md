@@ -52,7 +52,7 @@ Key registry. Use kebab-case prefixes like the example's (`patient-registration-
 | `otp-attempts:{purpose}:{email}` | counter | 5 min | max 5 wrong tries, then delete the OTP (`purpose` = `user-registration` \| `forgot-password`) |
 | `otp-cooldown:{purpose}:{email}` | `1` | 60 s | resend throttle |
 | `refresh-token:{userId}:{jti}` | `active`, then `used:<ms timestamp>` | refresh TTL (7 d) | rotation + reuse detection; logout deletes one, password change deletes all |
-| `roommate-matches:{tenantId}` | JSON | 10 min | roommate matching cache; delete when the profile changes |
+| `roommate-matches:{tenantId}` | JSON | 10 min | **Not used yet.** Optional cache if matching ever gets slow (currently computed per request) |
 | `payment-lock:{rentPaymentId}` | `1` | 30 s | stops double checkout creation |
 | `rent-reminder-sent:{rentPaymentId}:{daysBefore}` | `1` | 7 d | reminder de-duplication |
 

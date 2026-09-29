@@ -32,4 +32,9 @@ router.patch(
     RoommateController.updateMyProfileStatus,
 )
 
+// Matching: only tenants whose own roommate search is on (checked in the service)
+router.get('/matches', auth(Role.TENANT), RoommateController.getMatches)
+// After /profile/me, so "me" is never treated as an id
+router.get('/profile/:id', auth(Role.TENANT), RoommateController.getProfileById)
+
 export const RoommateRoutes = router

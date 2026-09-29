@@ -112,8 +112,9 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       PATCH /:id(O/A) · PATCH /:id/status(O/A, AVAILABLE | UNAVAILABLE | MAINTENANCE)
                       POST /:id/images(O/A, multipart `images`, 1–10) · DELETE /:id/images/:imageId(O/A)
                       DELETE /:id(O/A, soft delete) · GET /public/available-rooms🌐 · GET /public/:id🌐
-/api/v1/roommate      (profile implemented) POST /profile(T) · GET /profile/me(T) · PATCH /profile/me(T)
-                      PATCH /profile/me/status(T, { isActive }) · (next) GET /matches(T) · GET /profile/:id(T)
+/api/v1/roommate      (implemented) POST /profile(T) · GET /profile/me(T) · PATCH /profile/me(T)
+                      PATCH /profile/me/status(T, { isActive }) · GET /matches(T, search on; minScore, page, limit)
+                      GET /profile/:id(T, search on; with compatibility)
 /api/v1/viewing       POST /request-viewing(T) · GET /my-viewings(T) · PATCH /cancel-viewing/:viewingId(T)
                       GET /owner-viewings(O) · PATCH /update-status/:viewingId(O, body { status, scheduledAt?, ownerNote? })
                       GET /all-viewings(A) · GET /:viewingId(✱ owner-of)
