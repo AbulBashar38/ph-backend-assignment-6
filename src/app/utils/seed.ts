@@ -1,7 +1,7 @@
-import bcrypt from 'bcryptjs'
 import { AuthProvider, Role } from '../../generated/prisma/enums'
 import config from '../config'
 import { prisma } from '../lib/prisma'
+import { hashPassword } from './password'
 
 // Idempotent: creates the super admin from env on first boot, does nothing afterwards
 export const seedSuperAdmin = async () => {
@@ -26,7 +26,7 @@ export const seedSuperAdmin = async () => {
         data: {
             name,
             email,
-            password: await bcrypt.hash(password, Number(config.bcrypt_salt_rounds) || 10),
+            password: await hashPassword(password),
             role: Role.SUPER_ADMIN,
             authProvider: AuthProvider.CREDENTIAL,
             emailVerified: true,

@@ -2,6 +2,8 @@ import bcrypt from 'bcryptjs'
 import httpStatus from 'http-status'
 import {
     AuditAction,
+    AuthProvider,
+    NotificationType,
     PropertyStatus,
     RentalStatus,
     Role,
@@ -16,12 +18,20 @@ import { AppError } from '../../utils/AppError'
 import { createAuditLog } from '../../utils/auditLog'
 import { authTokenUtils } from '../../utils/authTokens'
 import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
+import { createNotifications } from '../../utils/notification'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
+import { hashPassword } from '../../utils/password'
 import { isAdminRole } from '../../utils/roles'
+import { APP_NAME, formatEmailDate, sendEmailSafely } from '../../utils/sendEmail'
 import { cancelPendingApplications } from '../application/application.utils'
 import { cancelOpenViewings } from '../viewing/viewing.utils'
 import { USER_SEARCHABLE_FIELDS, USER_SORTABLE_FIELDS } from './user.constant'
-import type { IDeleteUserPayload, IUpdateUserPayload } from './user.interface'
+import type {
+    ICreateAdminPayload,
+    IDeleteUserPayload,
+    IUpdateUserPayload,
+    IUpdateUserStatusPayload,
+} from './user.interface'
 import { GetAllUsersQueryZodSchema } from './user.validation'
 
 const findActiveUser = async (userId: string) => {
@@ -364,6 +374,191 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
     return { isSelf }
 }
 
+// ---------- admin: user management ----------
+
+/**
+ * PATCH /user/:id/status — suspend (BLOCKED) or reactivate (ACTIVE) an account. Admins manage tenants and owners;
+ * only the SUPER_ADMIN manages admins; nobody changes their own status or the SUPER_ADMIN's.
+ * Blocking: logged out everywhere, listings and roommate profile hidden (by the status filters), open viewings and
+ * pending applications cancelled (the other side is notified). Live rentals continue.
+ */
+const updateUserStatus = async (
+    actor: RequestUser,
+    userId: string,
+    payload: IUpdateUserStatusPayload,
+) => {
+    const user = await findActiveUser(userId)
+
+    if (user.id === actor.userId) {
+        throw new AppError(httpStatus.FORBIDDEN, 'You Cannot Change Your Own Account Status')
+    }
+
+    if (user.role === Role.SUPER_ADMIN) {
+        throw new AppError(httpStatus.FORBIDDEN, 'The Super Admin Account Cannot Be Blocked')
+    }
+
+    assertCanManageUser(actor, user)
+
+    const isBlock = payload.status === UserStatus.BLOCKED
+    const from = isBlock ? UserStatus.ACTIVE : UserStatus.BLOCKED
+
+    if (user.status !== from) {
+        throw new AppError(
+            httpStatus.CONFLICT,
+            isBlock ? 'This User Is Already Blocked' : 'This User Is Already Active',
+        )
+    }
+
+    const reason = isBlock ? payload.reason : null
+    const now = new Date()
+
+    const updatedUser = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.user.updateMany({
+            where: { id: user.id, isDeleted: false, status: from },
+            data: {
+                status: payload.status,
+                blockedAt: isBlock ? now : null,
+                blockedReason: reason,
+            },
+        })
+
+        if (count === 0) {
+            throw new AppError(
+                httpStatus.CONFLICT,
+                'User Status Changed. Please Refresh And Try Again',
+            )
+        }
+
+        const cancelled = { viewings: 0, applications: 0 }
+
+        if (isBlock && user.role === Role.OWNER) {
+            const ownersSide = { property: { ownerId: user.id } }
+            const why = "The owner's account was suspended"
+            cancelled.viewings = await cancelOpenViewings(tx, ownersSide, why, 'tenant')
+            cancelled.applications = await cancelPendingApplications(tx, ownersSide, why, 'tenant')
+        } else if (isBlock && user.role === Role.TENANT) {
+            const tenantsSide = { tenantId: user.id }
+            const why = "The tenant's account was suspended"
+            cancelled.viewings = await cancelOpenViewings(tx, tenantsSide, why, 'owner')
+            cancelled.applications = await cancelPendingApplications(tx, tenantsSide, why, 'owner')
+        }
+
+        // Kept in their notification history (they also get an email, since a blocked user can't log in)
+        await createNotifications(tx, [
+            {
+                userId: user.id,
+                type: NotificationType.ACCOUNT_STATUS_CHANGED,
+                title: isBlock ? 'Account Suspended' : 'Account Reactivated',
+                message: isBlock
+                    ? `Your account was suspended: ${reason}`
+                    : 'Your account was reactivated. You can log in again.',
+            },
+        ])
+
+        await createAuditLog(tx, {
+            actor,
+            action: isBlock ? AuditAction.USER_BLOCKED : AuditAction.USER_ACTIVATED,
+            resource: 'User',
+            resourceId: user.id,
+            previousData: { status: from, blockedReason: user.blockedReason },
+            newData: {
+                status: payload.status,
+                blockedReason: reason,
+                ...(isBlock ? { cancelledViewings: cancelled.viewings } : {}),
+                ...(isBlock ? { cancelledApplications: cancelled.applications } : {}),
+            },
+        })
+
+        return tx.user.findUniqueOrThrow({ where: { id: user.id }, ...withoutPassword })
+    })
+
+    // After the commit. auth() already refuses a blocked user's access token; this ends their sessions too.
+    if (isBlock) {
+        await authTokenUtils.revokeAllRefreshTokens(user.id)
+    }
+
+    await sendEmailSafely({
+        to: user.email,
+        subject: isBlock
+            ? `Your ${APP_NAME} account was suspended`
+            : `Your ${APP_NAME} account was reactivated`,
+        templateName: 'account-status',
+        templateData: {
+            name: user.name,
+            status: payload.status,
+            reason,
+            changedAt: formatEmailDate(now),
+        },
+    })
+
+    return updatedUser
+}
+
+/**
+ * POST /user/admin — SUPER_ADMIN only (route + service). The admin logs in with the password the super admin set and
+ * is asked to change it (`needPasswordChange`). The password is never emailed.
+ */
+const createAdmin = async (actor: RequestUser, payload: ICreateAdminPayload) => {
+    if (actor.role !== Role.SUPER_ADMIN) {
+        throw new AppError(httpStatus.FORBIDDEN, 'Only The Super Admin Can Create Admins')
+    }
+
+    const { name, email, phone, password } = payload
+
+    // Soft-deleted accounts keep their email/phone, so they count too
+    const existing = await prisma.user.findFirst({
+        where: { OR: [{ email }, ...(phone ? [{ phone }] : [])] },
+        select: { email: true },
+    })
+
+    if (existing) {
+        throw new AppError(
+            httpStatus.CONFLICT,
+            existing.email === email
+                ? 'An Account With This Email Already Exists'
+                : 'This Phone Number Is Already In Use',
+        )
+    }
+
+    const hashedPassword = await hashPassword(password)
+
+    // A duplicate created in the meantime fails with P2002 → 409 from the global error handler
+    const admin = await prisma.$transaction(async (tx) => {
+        const created = await tx.user.create({
+            data: {
+                name,
+                email,
+                phone,
+                password: hashedPassword,
+                role: Role.ADMIN,
+                authProvider: AuthProvider.CREDENTIAL,
+                emailVerified: true,
+                needPasswordChange: true,
+            },
+            ...withoutPassword,
+        })
+
+        await createAuditLog(tx, {
+            actor,
+            action: AuditAction.ADMIN_CREATED,
+            resource: 'User',
+            resourceId: created.id,
+            newData: { name, email, phone, role: Role.ADMIN },
+        })
+
+        return created
+    })
+
+    await sendEmailSafely({
+        to: email,
+        subject: `You're now an admin on ${APP_NAME}`,
+        templateName: 'admin-welcome',
+        templateData: { name, email, createdBy: actor.name },
+    })
+
+    return admin
+}
+
 export const UserServices = {
     getAllUsers,
     getUserById,
@@ -371,4 +566,6 @@ export const UserServices = {
     uploadProfileImage,
     removeProfileImage,
     deleteUser,
+    updateUserStatus,
+    createAdmin,
 }

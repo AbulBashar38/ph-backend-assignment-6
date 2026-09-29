@@ -11,6 +11,11 @@ export const UserSchema = z
         phone: z.string().nullable().meta({ example: '01712345678' }),
         role: z.enum(Role),
         status: z.enum(UserStatus),
+        blockedAt: z.iso.datetime().nullable(),
+        blockedReason: z
+            .string()
+            .nullable()
+            .meta({ description: 'Why an admin blocked the account (null when active)' }),
         authProvider: z.enum(AuthProvider),
         emailVerified: z.boolean(),
         needPasswordChange: z.boolean(),

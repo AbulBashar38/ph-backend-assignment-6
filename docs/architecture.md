@@ -101,7 +101,8 @@ says what happened (put codes in the subject: `"482913 is your … code"`).
 | `application-status.ejs` | `name, propertyTitle, roomName, status, reason?` |
 | `payment-success.ejs` | `name, amount, propertyTitle, roomName, period, paidAt, reference, isFirstPayment, moveInDate` (+ the `pdfkit` receipt from `payment.receipt.ts` attached) |
 | `rent-reminder.ejs` | `name, amount, dueDate, daysLeft` |
-| `account-status.ejs` | `name, status` |
+| `account-status.ejs` | `name, status (BLOCKED / ACTIVE), reason, changedAt` |
+| `admin-welcome.ejs` | `name, email, createdBy` (never the password) |
 
 ## File upload (`multer` → `cloudinary`)
 

@@ -137,6 +137,7 @@ enum NotificationType {
   RENT_BILL_CREATED
   RENT_DUE
   LISTING_EXPIRED
+  ACCOUNT_STATUS_CHANGED
 }
 
 // PENDING → APPROVED | REJECTED (owner/admin) | CANCELLED (tenant) | EXPIRED (automatic)
@@ -183,6 +184,9 @@ enum AuditAction {
   // Written by the cron jobs (actor = null)
   APPLICATION_EXPIRED
   PROPERTY_EXPIRED
+  USER_BLOCKED
+  USER_ACTIVATED
+  ADMIN_CREATED
 }
 
 // PENDING (due; may have an open Stripe Checkout Session) → PAID (only the verified webhook).

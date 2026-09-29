@@ -10,6 +10,7 @@ import { AppError } from '../../utils/AppError'
 import { authTokenUtils } from '../../utils/authTokens'
 import { jwtUtils } from '../../utils/jwt'
 import { OTP_EXPIRATION_SECONDS, otpUtils, type TOtpPurpose } from '../../utils/otp'
+import { hashPassword } from '../../utils/password'
 import { APP_NAME, formatEmailDate, sendEmail, sendEmailSafely } from '../../utils/sendEmail'
 import type {
     IChangePasswordPayload,
@@ -29,9 +30,6 @@ const REGISTRATION_DATA_EXPIRATION_SECONDS = 30 * 60
 const registrationDataKey = (email: string) => `user-registration-data:${email}`
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase()
-
-const hashPassword = (password: string) =>
-    bcrypt.hash(password, Number(config.bcrypt_salt_rounds) || 10)
 
 const sendOtpEmail = async (
     purpose: TOtpPurpose,

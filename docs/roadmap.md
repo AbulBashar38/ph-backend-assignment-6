@@ -82,7 +82,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 
 - [x] AuditLog model + `createAuditLog(tx, …)` helper
 - [ ] Admin audit-log viewer
-- [ ] Admin: users list/search, block/activate (delete the refresh token), create admin, property moderation
+- [x] Admin: users list/search, block/activate (revokes sessions, cancels open requests), create admin, property moderation
 - [ ] Analytics: admin stats from requirements §18 (example `analytics.service.ts` style), owner stats
 - [x] `lib/cron.ts`: generateRentDues, sendRentReminders, expirePendingApplications, expireListings, reconcileStalePayments
 

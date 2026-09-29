@@ -14,8 +14,10 @@ import { UserSchema } from '../../docs/schemas'
 import { IMAGE_UPLOAD_OPTIONS } from '../../lib/multer'
 import { USER_SEARCHABLE_FIELDS, USER_SORTABLE_FIELDS } from './user.constant'
 import {
+    CreateAdminValidationZodSchema,
     DeleteUserValidationZodSchema,
     GetAllUsersQueryZodSchema,
+    UpdateUserStatusValidationZodSchema,
     UpdateUserValidationZodSchema,
 } from './user.validation'
 
@@ -195,5 +197,66 @@ registry.registerPath({
     responses: {
         200: successResponse('User Deleted Successfully'),
         ...errorResponses(400, 401, 403, 404),
+    },
+})
+
+registry.registerPath({
+    method: 'patch',
+    path: '/user/{id}/status',
+    tags: [TAG],
+    summary: 'Block or activate a user (ADMIN / SUPER_ADMIN)',
+    description:
+        '| status | body | effect |\n' +
+        '|---|---|---|\n' +
+        "| `BLOCKED` | `reason` (required, emailed to the user) | Logged out everywhere and can't log in; an owner's " +
+        "listings and a tenant's roommate profile are hidden; open viewings and pending applications are cancelled (the " +
+        'other side is notified). Live rentals continue. |\n' +
+        '| `ACTIVE` | — | Can log in again; listings and roommate profile reappear. Cancelled requests stay cancelled. |\n\n' +
+        '**Who:** ADMIN → tenants and owners; SUPER_ADMIN → also admins. Nobody can change their own status or the ' +
+        "SUPER_ADMIN's (403). Already in that status, or changed meanwhile → 409. Deleted account → 404 " +
+        '(use `DELETE /user/{id}` to delete). Filter blocked users with `GET /user?status=BLOCKED`.',
+    security: authSecurity,
+    request: {
+        params: UserIdParams,
+        body: jsonBody(
+            UpdateUserStatusValidationZodSchema.meta({
+                examples: [
+                    { status: 'BLOCKED', reason: 'Posted fake listings and ignored warnings' },
+                    { status: 'ACTIVE' },
+                ],
+            }),
+        ),
+    },
+    responses: {
+        200: successResponse('User Blocked Successfully', UserSchema),
+        ...errorResponses(400, 401, 403, 404, 409),
+    },
+})
+
+registry.registerPath({
+    method: 'post',
+    path: '/user/admin',
+    tags: [TAG],
+    summary: 'Create an admin (SUPER_ADMIN only)',
+    description:
+        'Creates a verified `ADMIN` account with a temporary password that you share with them yourself (it is never ' +
+        'emailed). They get a welcome email and `needPasswordChange: true`, so the frontend should send them to ' +
+        '`PATCH /auth/change-password` after the first login. Email or phone already used (also by a deleted account) → 409.',
+    security: authSecurity,
+    request: {
+        body: jsonBody(
+            CreateAdminValidationZodSchema.meta({
+                example: {
+                    name: 'Nusrat Admin',
+                    email: 'nusrat.admin@example.com',
+                    phone: '01812345678',
+                    password: 'Temp@Pass123',
+                },
+            }),
+        ),
+    },
+    responses: {
+        201: successResponse('Admin Created Successfully', UserSchema),
+        ...errorResponses(400, 401, 403, 409),
     },
 })

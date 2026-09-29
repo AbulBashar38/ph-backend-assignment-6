@@ -94,6 +94,35 @@ const deleteUser = catchAsync(async (req: Request, res: Response) => {
     })
 })
 
+const updateUserStatus = catchAsync(async (req: Request, res: Response) => {
+    const result = await UserServices.updateUserStatus(
+        req.user as RequestUser,
+        req.params.id as string,
+        req.body,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message:
+            req.body.status === 'BLOCKED'
+                ? 'User Blocked Successfully'
+                : 'User Activated Successfully',
+        data: result,
+    })
+})
+
+const createAdmin = catchAsync(async (req: Request, res: Response) => {
+    const result = await UserServices.createAdmin(req.user as RequestUser, req.body)
+
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: 'Admin Created Successfully',
+        data: result,
+    })
+})
+
 export const UserController = {
     getAllUsers,
     getUserById,
@@ -101,4 +130,6 @@ export const UserController = {
     uploadProfileImage,
     removeProfileImage,
     deleteUser,
+    updateUserStatus,
+    createAdmin,
 }

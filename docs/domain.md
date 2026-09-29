@@ -51,7 +51,7 @@ NotificationType:  (in the enum now) VIEWING_REQUESTED | VIEWING_APPROVED | VIEW
                    | VIEWING_CANCELLED | VIEWING_COMPLETED | APPLICATION_SUBMITTED | APPLICATION_APPROVED
                    | APPLICATION_REJECTED | APPLICATION_CANCELLED | RENTAL_STATUS_CHANGED | PAYMENT_SUCCESS
                    | PAYMENT_RECEIVED | PAYMENT_FAILED | PAYMENT_REFUNDED | APPLICATION_EXPIRED | RENT_BILL_CREATED
-                   | RENT_DUE | LISTING_EXPIRED; (planned) ROOM_AVAILABILITY_CHANGED | ACCOUNT_STATUS_CHANGED
+                   | RENT_DUE | LISTING_EXPIRED | ACCOUNT_STATUS_CHANGED; (planned) ROOM_AVAILABILITY_CHANGED
 AuditAction:       see the Audit section below
 ```
 
@@ -218,7 +218,14 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
 6. An approved application always has exactly one rental (`Rental.applicationId @unique`).
 7. A PAID `Payment` has a `stripePaymentIntentId`, and Stripe's `amount_total` equalled `amount × 100` in `bdt`
    (otherwise the money is refunded and the bill is FAILED).
-8. BLOCKED users can't log in. All their refresh tokens are revoked (`authTokenUtils.revokeAllRefreshTokens`), and their properties are hidden from public search.
+8. User management (`PATCH /user/:id/status`, `UserServices.updateUserStatus`): admins block (with a reason) or
+   reactivate. ADMIN → tenants and owners; SUPER_ADMIN → also admins; nobody changes their own status or the
+   SUPER_ADMIN's. BLOCKED users can't log in or use an access token, and all refresh tokens are revoked. Their listings
+   (`publiclyVisibleProperty`) and roommate profile are hidden by status filters, so reactivating brings them back.
+   Blocking cancels open viewings and pending applications on their side (the other side is notified); live rentals
+   continue. The user gets an `ACCOUNT_STATUS_CHANGED` notification and an `account-status` email; audit
+   `USER_BLOCKED` / `USER_ACTIVATED`. `POST /user/admin` (SUPER_ADMIN) creates a verified ADMIN with
+   `needPasswordChange: true`; audit `ADMIN_CREATED`.
 9. Users can see only their own private data. Owners see applications/viewings/payments for **their** properties only.
 
 ## Concurrency pattern (use everywhere a status gates a write)
@@ -333,4 +340,4 @@ PROPERTY_CREATED, PROPERTY_UPDATED, PROPERTY_PUBLISHED, PROPERTY_DISABLED, PROPE
 PROPERTY_RESTORED, ROOM_CREATED, ROOM_UPDATED, ROOM_STATUS_CHANGED, ROOM_ARCHIVED, APPLICATION_SUBMITTED,
 APPLICATION_APPROVED, APPLICATION_REJECTED, APPLICATION_CANCELLED, RENTAL_CREATED, RENTAL_STATUS_CHANGED,
 PAYMENT_COMPLETED, PAYMENT_FAILED, PAYMENT_REFUNDED, APPLICATION_EXPIRED, PROPERTY_EXPIRED` (payment and cron
-actions have a null actor). **Planned:** `USER_BLOCKED, USER_ACTIVATED, VIEWING_STATUS_CHANGED`
+actions have a null actor), `USER_BLOCKED, USER_ACTIVATED, ADMIN_CREATED`. **Planned:** `VIEWING_STATUS_CHANGED`

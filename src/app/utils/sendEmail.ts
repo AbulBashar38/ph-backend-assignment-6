@@ -24,6 +24,13 @@ interface IEmailTemplateData {
         isFirstPayment: boolean
         moveInDate: string
     }
+    'account-status': {
+        name: string
+        status: 'ACTIVE' | 'BLOCKED'
+        reason: string | null
+        changedAt: string
+    }
+    'admin-welcome': { name: string; email: string; createdBy: string }
     'rent-reminder': {
         name: string
         amount: string

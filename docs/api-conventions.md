@@ -98,6 +98,7 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
 /api/v1/auth          POST /register · /verify-email · /resend-otp · /login · /google · /refresh-token
                       POST /logout · /forgot-password · /reset-password · PATCH /change-password(✱) · GET /me(✱)
 /api/v1/user          GET /(A; search/filter/paginate) · GET /:id(self, or A: any account incl. soft-deleted)
+                      PATCH /:id/status(A; BLOCKED { reason } | ACTIVE) · POST /admin(SUPER_ADMIN; create an admin)
                       PATCH /:id(self, or A per role rules) · DELETE /:id(self, or A per role rules; soft delete;
                       body { password } = caller's own)
                       PATCH /:id/profile-image(self or A; multipart `profileImage`) · DELETE /:id/profile-image(self or A)
@@ -125,7 +126,6 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       · GET /(T own, O own rentals, A all) · GET /session/:sessionId · GET /:id · GET /:id/receipt(PDF)
                       (the tenant, the owner, or A). No route sets a payment status.
 /api/v1/notification  (implemented) GET /(✱ own, ?isRead) · GET /unread-count(✱) · PATCH /read-all(✱) · PATCH /:id/read(✱ own)
-/api/v1/admin         GET /all-users(A) · GET /user/:userId(A) · PATCH /update-user-status/:userId(A) · POST /create-admin(SUPER_ADMIN)
 /api/v1/analytics     GET /admin-analytics(A) · GET /owner-analytics(O)
 /api/v1/audit         GET /all-audit-logs(A)
 ```

@@ -1,0 +1,25 @@
+<% const isBlocked = status === 'BLOCKED' -%>
+<%- include('partials/layout-start', {
+  title: isBlocked ? 'Your account was suspended' : 'Your account was reactivated',
+  preheader: isBlocked
+    ? `Your ${appName} account was suspended on ${changedAt}.`
+    : `Your ${appName} account is active again. You can log in.`,
+}) %>
+<%- include('partials/heading', { text: isBlocked ? 'Your account was suspended' : 'Welcome back!' }) %>
+<p style="margin: 0 0 12px 0;">Hi <%= name %>,</p>
+<% if (isBlocked) { -%>
+<p style="margin: 0 0 20px 0;">
+  An administrator suspended your account on <%= changedAt %>. You've been signed out and can't log in while it's suspended.
+  Your open viewing requests and pending applications were cancelled.
+</p>
+<%- include('partials/callout', { tone: 'warning', title: 'Reason', text: reason }) %>
+<p style="margin: 20px 0 0 0;">
+  If you think this is a mistake, reply to this email and our team will review it.
+</p>
+<% } else { -%>
+<p style="margin: 0 0 20px 0;">
+  Your account was reactivated on <%= changedAt %>. You can log in and use <%= appName %> again.
+</p>
+<%- include('partials/button', { href: `${frontendUrl}/login`, label: 'Log in' }) %>
+<% } -%>
+<%- include('partials/layout-end') %>

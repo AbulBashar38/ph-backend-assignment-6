@@ -1,6 +1,6 @@
 import z from 'zod'
 import { AuthProvider, Gender, Role, UserStatus } from '../../../generated/prisma/enums'
-import { nameSchema, phoneSchema } from '../../utils/commonZodSchemas'
+import { emailSchema, nameSchema, passwordSchema, phoneSchema } from '../../utils/commonZodSchemas'
 
 // `.strict()` rejects fields that can't be changed here (email, role, status, password…)
 export const UpdateUserValidationZodSchema = z
@@ -51,3 +51,37 @@ export const GetAllUsersQueryZodSchema = z.object({
     // Default false: soft-deleted accounts are only listed when explicitly asked for
     isDeleted: booleanQuerySchema('isDeleted').optional(),
 })
+
+/**
+ * PATCH /user/:id/status — admins suspend or reactivate an account (one endpoint):
+ * BLOCKED { reason } → logged out everywhere, can't log in; the reason is emailed to them
+ * ACTIVE {}          → can log in again
+ */
+export const UpdateUserStatusValidationZodSchema = z.discriminatedUnion(
+    'status',
+    [
+        z
+            .object({
+                status: z.literal(UserStatus.BLOCKED),
+                reason: z
+                    .string('A Reason Is Required To Block A User')
+                    .trim()
+                    .min(3, 'A Reason Is Required To Block A User')
+                    .max(500, 'Reason Must Be At Most 500 Characters Long'),
+            })
+            .strict(),
+        z.object({ status: z.literal(UserStatus.ACTIVE) }).strict(),
+    ],
+    // DELETED is not a status you set here: use DELETE /user/:id
+    { error: 'Status Must Be BLOCKED Or ACTIVE' },
+)
+
+// POST /user/admin — SUPER_ADMIN creates an admin with a temporary password (changed at first login)
+export const CreateAdminValidationZodSchema = z
+    .object({
+        name: nameSchema,
+        email: emailSchema,
+        phone: phoneSchema.optional(),
+        password: passwordSchema,
+    })
+    .strict()

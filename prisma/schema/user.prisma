@@ -10,6 +10,9 @@ model User {
   emailVerified      Boolean      @default(false)
   role               Role         @default(TENANT)
   status             UserStatus   @default(ACTIVE)
+  // Set by an admin when blocking (shown to the user in the email); cleared on reactivation
+  blockedAt          DateTime?
+  blockedReason      String?
   needPasswordChange Boolean      @default(false)
   imageUrl           String?
   imagePublicId      String?
