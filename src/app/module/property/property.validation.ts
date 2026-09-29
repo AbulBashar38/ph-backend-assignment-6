@@ -1,5 +1,5 @@
 import z from 'zod'
-import { Amenity, PropertyStatus, PropertyType } from '../../../generated/prisma/enums'
+import { Amenity, PropertyStatus, PropertyType, RoomType } from '../../../generated/prisma/enums'
 
 const trimmedString = (field: string, min: number, max: number) =>
     z
@@ -88,7 +88,17 @@ const baseListFilters = {
     amenities: amenitiesQuerySchema.optional(),
 }
 
-export const PublicPropertiesQueryZodSchema = z.object(baseListFilters)
+const intQuerySchema = (field: string) =>
+    z.string().regex(/^\d+$/, `${field} Must Be A Whole Number`).transform(Number)
+
+// Room filters: a property matches if it has at least one AVAILABLE room that fits
+export const PublicPropertiesQueryZodSchema = z.object({
+    ...baseListFilters,
+    minRent: intQuerySchema('minRent').optional(),
+    maxRent: intQuerySchema('maxRent').optional(),
+    roomType: z.enum(RoomType, 'Invalid Room Type').optional(),
+    occupants: intQuerySchema('occupants').optional(),
+})
 
 // GET /property (management list): owners get their own listings, admins get all
 export const PropertiesQueryZodSchema = z.object({

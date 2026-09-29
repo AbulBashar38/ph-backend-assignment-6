@@ -1,5 +1,11 @@
 import z from 'zod'
-import { Amenity, PropertyStatus, PropertyType } from '../../../generated/prisma/enums'
+import {
+    Amenity,
+    PropertyStatus,
+    PropertyType,
+    RoomStatus,
+    RoomType,
+} from '../../../generated/prisma/enums'
 import {
     authSecurity,
     errorResponses,
@@ -35,6 +41,16 @@ const PropertyImageSchema = z
     })
     .meta({ id: 'PropertyImage' })
 
+const RoomSummarySchema = z.object({
+    id: z.string(),
+    name: z.string().meta({ example: 'Room 2A' }),
+    roomType: z.enum(RoomType),
+    monthlyRent: z.number().int().meta({ example: 15000 }),
+    maxOccupants: z.number().int(),
+    status: z.enum(RoomStatus),
+    availableFrom: z.iso.datetime().nullable(),
+})
+
 const propertyCoreFields = {
     id: z.string().meta({ example: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b' }),
     title: z.string().meta({ example: 'Sunny 3-bed apartment near Mirpur 10' }),
@@ -48,6 +64,7 @@ const propertyCoreFields = {
     amenities: z.array(z.enum(Amenity)).meta({ example: ['WIFI', 'LIFT', 'GENERATOR'] }),
     publishedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
+    rooms: z.array(RoomSummarySchema).meta({ description: 'Live rooms, cheapest first' }),
 }
 
 const PropertySchema = z
@@ -111,9 +128,21 @@ registry.registerPath({
     description:
         'No login needed. Only `PUBLISHED`, non-expired listings whose owner account is active. ' +
         'Owner contact details and moderation notes are never included.\n\n' +
-        '_Rent range, room type and availability filters are added with the Room module._',
+        'Room filters (`minRent`, `maxRent`, `roomType`, `occupants`) match properties that have at least one ' +
+        '**available** room fitting all of them. Each property includes its rooms with rent and status.',
     security: [],
-    request: { query: z.object(listFilterParams) },
+    request: {
+        query: z.object({
+            ...listFilterParams,
+            minRent: z.string().optional().meta({ description: 'Whole taka', example: '10000' }),
+            maxRent: z.string().optional().meta({ description: 'Whole taka', example: '20000' }),
+            roomType: z.enum(RoomType).optional(),
+            occupants: z
+                .string()
+                .optional()
+                .meta({ description: 'Rooms that fit at least this many people' }),
+        }),
+    },
     responses: {
         200: paginatedResponse('Properties Retrieved Successfully', PublicPropertySchema),
         ...errorResponses(400),
@@ -225,7 +254,7 @@ registry.registerPath({
     description:
         `${ownerOrAdmin}\n\n` +
         '- From `DRAFT` or `INACTIVE` → `PUBLISHED` (visible in public search).\n' +
-        '- Needs at least one image (400) and an `expiresAt` in the future if set (400).\n' +
+        '- Needs at least one image (400), at least one room (400), and an `expiresAt` in the future if set (400).\n' +
         '- Already published → 409. Suspended: owner → 403 with the reason; an admin may publish it (clears the suspension).',
     security: authSecurity,
     request: { params: idParams },
@@ -293,7 +322,8 @@ registry.registerPath({
     summary: 'Remove a property from listings: soft delete (owner of it, ADMIN, SUPER_ADMIN)',
     description:
         `${ownerOrAdmin} Sets status \`ARCHIVED\` + \`isDeleted\`. Nothing is erased: the listing, its images and its ` +
-        'history are kept (and it stays visible in `GET /property?status=ARCHIVED`), but it can no longer be edited or published.',
+        'history are kept (and it stays visible in `GET /property?status=ARCHIVED`), but it can no longer be edited or published. ' +
+        'Its rooms are removed with it. Refused (409) while any room is `RESERVED` or `OCCUPIED`.',
     security: authSecurity,
     request: { params: idParams },
     responses: {

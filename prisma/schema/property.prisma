@@ -29,6 +29,7 @@ model Property {
   owner   User   @relation(fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   images PropertyImage[]
+  rooms  Room[]
 
   @@index([ownerId], name: "idx_property_ownerId")
   @@index([status, isDeleted], name: "idx_property_status_isDeleted")

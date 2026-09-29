@@ -57,6 +57,23 @@ enum Amenity {
   ATTACHED_BATHROOM
 }
 
+enum RoomType {
+  SINGLE
+  SHARED
+  MASTER
+  STUDIO
+}
+
+// AVAILABLE / UNAVAILABLE / MAINTENANCE are set by the owner (or an admin).
+// RESERVED / OCCUPIED are set only by the system (application approved / rent paid).
+enum RoomStatus {
+  AVAILABLE
+  RESERVED
+  OCCUPIED
+  UNAVAILABLE
+  MAINTENANCE
+}
+
 enum AuditAction {
   USER_UPDATED
   USER_DELETED
@@ -67,4 +84,8 @@ enum AuditAction {
   PROPERTY_ARCHIVED
   PROPERTY_SUSPENDED
   PROPERTY_RESTORED
+  ROOM_CREATED
+  ROOM_UPDATED
+  ROOM_STATUS_CHANGED
+  ROOM_ARCHIVED
 }

@@ -17,10 +17,11 @@ role, so services check it (e.g. `findActiveOwner` in `property.service.ts`).
 | `RoommateProfile` | tenantId @unique, age, budgetMin, budgetMax, preferredCity, preferredArea, moveInDate, smoking, pets, sleepSchedule, lifestyle String[], genderPreference, isActive | `isActive` = "roommate search enabled". Gender and occupation come from `User` (not duplicated) |
 | `Property` | ownerId, title, description, propertyType, address, city, area, latitude?, longitude?, amenities `Amenity[]`, status, publishedAt?, expiresAt?, moderationNote?, moderatedAt?, isDeleted, deletedAt | **Implemented.** Photos live in `PropertyImage` |
 | `PropertyImage` | propertyId, url, publicId, createdAt | **Implemented.** Max 20 per property; rows are file references, so removing a photo deletes the row (not a soft delete) |
-| `Room` | propertyId, name, roomType, monthlyRent Decimal(10,2), maxOccupants, currentOccupants, amenities String[], images Json?, status, availableFrom, description?, isDeleted | |
+| `Room` | propertyId, name, roomType, monthlyRent **Int (whole taka)**, maxOccupants, description?, amenities `Amenity[]`, availableFrom?, status, isDeleted, deletedAt | **Implemented.** One tenant rents the **whole room**; `maxOccupants` is information only. Name unique among the property's live rooms |
+| `RoomImage` | roomId, url, publicId, createdAt | **Implemented.** Max 10 per room |
 | `ViewingRequest` | tenantId, propertyId, roomId?, preferredDate, preferredTime, message?, status, scheduledAt?, ownerNote? | |
 | `Application` | tenantId, propertyId, roomId, message?, documents Json?, status, expiresAt, reviewedAt?, rejectionReason? | Mirrors the example's `reviewedAt` / `rejectionReason` |
-| `Rental` | applicationId @unique, tenantId, ownerId, propertyId, roomId, monthlyRent, startDate, endDate?, status | Rent is a snapshot, so don't read the live `Room.monthlyRent` |
+| `Rental` | applicationId @unique, tenantId, ownerId, propertyId, roomId, monthlyRent (Int), startDate, endDate?, status | Rent is a snapshot, so don't read the live `Room.monthlyRent` |
 | `Payment` | rentalId, tenantId, amount Decimal(10,2), currency @default("BDT"), paymentGateway @default("stripe"), periodStart, periodEnd, dueDate, status, stripeSessionId? @unique, stripePaymentIntentId? @unique, paidAt?, gatewayResponse Json? | One row per rent period, shaped like the example's `Payment`. `@@unique([rentalId, periodStart])` |
 | `Notification` | userId, type (enum), title, message, isRead, readAt? | |
 | `AuditLog` | actorId?, actorRole?, action (enum), resource, resourceId, previousData Json?, newData Json?, createdAt | Append-only. `actorId` is null for cron actions |
@@ -66,23 +67,27 @@ PENDING → EXPIRED    (cron only)
 ```
 All other states are terminal.
 
-**Room**
+**Room** (implemented in `RoomServices`; conditional updates + audit log):
 
 ```text
-AVAILABLE ↔ UNAVAILABLE / MAINTENANCE    (owner)
-AVAILABLE → RESERVED                     (application approved; rental PENDING until first payment)
-RESERVED  → OCCUPIED                     (first rent payment PAID → rental ACTIVE)
-RESERVED  → AVAILABLE                    (rental terminated before activation)
-OCCUPIED  → AVAILABLE                    (rental COMPLETED/TERMINATED)
+AVAILABLE ↔ UNAVAILABLE ↔ MAINTENANCE     owner of the property or any admin (PATCH /room/:id/status)
+AVAILABLE → RESERVED                      system only: application approved (rental PENDING until first payment)
+RESERVED  → OCCUPIED                      system only: first rent payment PAID → rental ACTIVE
+RESERVED  → AVAILABLE                     system only: rental terminated before activation
+OCCUPIED  → AVAILABLE                     system only: rental COMPLETED / TERMINATED
 ```
-An owner can **never** set OCCUPIED/RESERVED → AVAILABLE by hand while a PENDING/ACTIVE rental exists.
+
+`RESERVED` / `OCCUPIED` rooms can't be changed by hand (409), can't be removed, and block archiving their property
+and deleting their owner's account. Removing a room = soft delete (`isDeleted`, status `UNAVAILABLE`); the last live room
+of a `PUBLISHED` property can't be removed. Public room search shows only `AVAILABLE` rooms of publicly visible properties;
+an amenity filter matches if the amenity is on the room **or** its property.
 
 **Rental**: `PENDING → ACTIVE` (first payment), `PENDING → TERMINATED`, `ACTIVE → COMPLETED | TERMINATED`.
 
 **Property** (implemented in `PropertyServices`; every change is a conditional `updateMany` + audit log):
 
 ```text
-DRAFT | INACTIVE → PUBLISHED      owner: needs ≥1 image, expiresAt (if set) in the future; sets publishedAt
+DRAFT | INACTIVE → PUBLISHED      owner/admin: needs ≥1 image, ≥1 room, expiresAt (if set) in the future
 PUBLISHED        → INACTIVE       owner "disable" (later also cron when expiresAt passes)
 any live status  → SUSPENDED      admin, with a reason (moderationNote); the owner can't publish it
 SUSPENDED        → INACTIVE       admin "restore"; the owner reviews and re-publishes
@@ -95,8 +100,9 @@ required `ownerId`, edit, publish, disable, add/remove photos, archive), plus su
 Owners can do everything except moderation, only on their own properties. An admin may publish a SUSPENDED listing
 directly (clears the note); an owner can't. Rules that protect data apply to everyone: ≥1 image to publish, the last
 image of a published listing stays, archived listings are read-only. Every admin action is audited with the admin as actor.
-The last image of a `PUBLISHED` property can't be removed. **Still TODO:** "needs ≥1 room" to publish, and refusing to
-archive while a room has a PENDING/ACTIVE rental (Room / Rental modules).
+The last image of a `PUBLISHED` property can't be removed. Archiving a property removes its rooms too, and is refused
+while any room is `RESERVED`/`OCCUPIED`. Public property search can filter by room (`minRent`, `maxRent`, `roomType`,
+`occupants`): a property matches if at least one `AVAILABLE` room fits.
 
 **Viewing**: `PENDING → APPROVED | REJECTED | RESCHEDULED`, `RESCHEDULED → APPROVED | CANCELLED`,
 `APPROVED → COMPLETED | CANCELLED`, `PENDING → CANCELLED` (tenant).
@@ -162,7 +168,8 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
   an admin deleting someone stays logged in.
 - Afterwards the deleted user gets: login → 401, Google login → 403, forgot-password → 404, and register with the same
   email/phone → 409 "belongs to a deleted account, contact support".
-- **Done:** an owner's properties → `ARCHIVED` in the same transaction; audit `USER_DELETED` (every delete) and
+- **Done:** an owner with a `RESERVED`/`OCCUPIED` room → 409; otherwise their properties → `ARCHIVED` and rooms removed
+  in the same transaction; audit `USER_DELETED` (every delete) and
   `USER_UPDATED` (when an admin edits someone else's account).
 - **To add when those modules exist** (marked `TODO` in the service): refuse while the user has a `PENDING`/`ACTIVE` rental
   (409); rooms → `UNAVAILABLE`; the user's `PENDING` applications and viewings → `CANCELLED` (+ notify the other party).

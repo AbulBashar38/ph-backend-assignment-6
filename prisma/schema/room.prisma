@@ -1,0 +1,44 @@
+// A rentable room. One tenant rents the whole room; maxOccupants only tells tenants how many people it fits.
+model Room {
+  id String @id @default(uuid(7))
+
+  name          String // e.g. "Room 2A", unique among the property's live rooms (checked in the service)
+  roomType      RoomType
+  monthlyRent   Int // whole BDT (taka)
+  maxOccupants  Int
+  description   String?
+  amenities     Amenity[]
+  // null = available right away
+  availableFrom DateTime?
+
+  status RoomStatus @default(AVAILABLE)
+
+  isDeleted Boolean   @default(false)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  images RoomImage[]
+
+  @@index([propertyId], name: "idx_room_propertyId")
+  @@index([status, isDeleted], name: "idx_room_status_isDeleted")
+  @@index([monthlyRent], name: "idx_room_monthlyRent")
+  @@map("rooms")
+}
+
+model RoomImage {
+  id String @id @default(uuid(7))
+
+  url       String
+  publicId  String
+  createdAt DateTime @default(now())
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([roomId], name: "idx_roomImage_roomId")
+  @@map("room_images")
+}

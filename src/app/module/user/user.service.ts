@@ -1,6 +1,12 @@
 import bcrypt from 'bcryptjs'
 import httpStatus from 'http-status'
-import { AuditAction, PropertyStatus, Role, UserStatus } from '../../../generated/prisma/enums'
+import {
+    AuditAction,
+    PropertyStatus,
+    Role,
+    RoomStatus,
+    UserStatus,
+} from '../../../generated/prisma/enums'
 import type { UserWhereInput } from '../../../generated/prisma/models'
 import type { IQuery } from '../../interfaces'
 import { prisma } from '../../lib/prisma'
@@ -258,6 +264,24 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
         }
     }
 
+    // An owner with a tenant moving in or living in one of their rooms can't disappear
+    if (user.role === Role.OWNER) {
+        const rentedRooms = await prisma.room.count({
+            where: {
+                isDeleted: false,
+                status: { in: [RoomStatus.RESERVED, RoomStatus.OCCUPIED] },
+                property: { ownerId: user.id },
+            },
+        })
+
+        if (rentedRooms > 0) {
+            throw new AppError(
+                httpStatus.CONFLICT,
+                "This Owner Has Reserved Or Occupied Rooms, So The Account Can't Be Deleted Yet",
+            )
+        }
+    }
+
     const deletedAt = new Date()
 
     await prisma.$transaction(async (tx) => {
@@ -265,11 +289,15 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
             where: { id: user.id },
             data: { isDeleted: true, deletedAt, status: UserStatus.DELETED },
         })
-        // A deleted owner's listings leave the site too (kept as ARCHIVED for history)
+        // A deleted owner's listings and rooms leave the site too (kept for history)
         if (user.role === Role.OWNER) {
             await tx.property.updateMany({
                 where: { ownerId: user.id, isDeleted: false },
                 data: { isDeleted: true, deletedAt, status: PropertyStatus.ARCHIVED },
+            })
+            await tx.room.updateMany({
+                where: { property: { ownerId: user.id }, isDeleted: false },
+                data: { isDeleted: true, deletedAt, status: RoomStatus.UNAVAILABLE },
             })
         }
 
@@ -282,7 +310,7 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
             newData: { status: UserStatus.DELETED, deletedBy: isSelf ? 'self' : 'admin' },
         })
 
-        // TODO(rental/application modules): refuse while a PENDING/ACTIVE rental exists (409) and cancel
+        // TODO(rental/application modules): a TENANT with a PENDING/ACTIVE rental → 409, and cancel
         // pending applications/viewings (docs/domain.md → User update & delete)
     })
 

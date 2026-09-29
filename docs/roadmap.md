@@ -45,9 +45,11 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 - [x] Upload infrastructure: `lib/multer.ts` presets (image, document), `lib/cloudinary.ts`, `utils/cloudinaryUpload.ts`
 - [x] Property: create (JSON), my/all/public lists with search/filter/sort/paginate, details, update, publish/disable,
       images (add/remove), admin suspend/restore, soft delete (archive), audit log
-- [ ] Property: rent/room filters in public search and "needs ≥1 room to publish" (with the Room module)
+- [x] Property: rent/room filters in public search, rooms in property details, "needs ≥1 room to publish",
+      archive refused with reserved/occupied rooms (rooms archived with the property)
 - [ ] Property: cron `expireListings` (PUBLISHED past `expiresAt` → INACTIVE)
-- [ ] Room: create, update, status changes with guards, public available rooms
+- [x] Room: create, list (role-scoped), details, update, status changes with guards, images, soft delete,
+      public available-room search and details, audit log
 
 ## Phase 3: Matching & viewings
 

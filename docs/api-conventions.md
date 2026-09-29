@@ -107,8 +107,11 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       POST /:id/images(O/A, multipart `images`, 1–10) · DELETE /:id/images/:imageId(O/A)
                       DELETE /:id(O/A, soft → ARCHIVED) · PATCH /:id/moderate(A only, { action, reason })
                       GET /public/all-properties🌐 · GET /public/:id🌐
-/api/v1/room          POST /(O, JSON with propertyId) · PATCH /:id(O) · POST /:id/images · DELETE /:id/images/:imageId
-                      PATCH /:id/status(O) · GET /public/available-rooms🌐 · GET /public/:id🌐
+/api/v1/room          (implemented; "O/A" = owner of the room's property, or any admin)
+                      POST /(O/A, JSON with propertyId) · GET /(O → rooms of own properties, A → all) · GET /:id(O/A)
+                      PATCH /:id(O/A) · PATCH /:id/status(O/A, AVAILABLE | UNAVAILABLE | MAINTENANCE)
+                      POST /:id/images(O/A, multipart `images`, 1–10) · DELETE /:id/images/:imageId(O/A)
+                      DELETE /:id(O/A, soft delete) · GET /public/available-rooms🌐 · GET /public/:id🌐
 /api/v1/roommate      POST /create-profile(T) · GET /my-profile(T) · PATCH /update-my-profile(T)
                       PATCH /toggle-search(T) · GET /matches(T) · GET /:roommateProfileId(T)
 /api/v1/viewing       POST /request-viewing(T) · GET /my-viewings(T) · PATCH /cancel-viewing/:viewingId(T)

@@ -6,6 +6,7 @@ import {
     PropertyStatus,
     type PropertyType,
     Role,
+    RoomStatus,
     UserStatus,
 } from '../../../generated/prisma/enums'
 import type { PropertyWhereInput } from '../../../generated/prisma/models'
@@ -34,8 +35,24 @@ const RESOURCE = 'Property'
 const imagesInOrder = { orderBy: { createdAt: 'asc' } } as const
 
 // Full view for the owner and admins
+// Live rooms, cheapest first, as a summary on the property
+const roomSummary = {
+    where: { isDeleted: false },
+    select: {
+        id: true,
+        name: true,
+        roomType: true,
+        monthlyRent: true,
+        maxOccupants: true,
+        status: true,
+        availableFrom: true,
+    },
+    orderBy: { monthlyRent: 'asc' },
+} as const
+
 const propertyDetailsInclude = {
     images: imagesInOrder,
+    rooms: roomSummary,
     owner: { select: { id: true, name: true, email: true, imageUrl: true } },
 } satisfies Prisma.PropertyInclude
 
@@ -54,11 +71,13 @@ const publicPropertySelect = {
     publishedAt: true,
     createdAt: true,
     images: { select: { id: true, url: true }, ...imagesInOrder },
+    // Requirement §7: rooms, prices and availability (status tells which can be applied for)
+    rooms: roomSummary,
     owner: { select: { id: true, name: true, imageUrl: true } },
 } satisfies Prisma.PropertySelect
 
 // A listing is public only if it's published, not expired, and its owner account is active
-const publiclyVisible = (): PropertyWhereInput => ({
+export const publiclyVisibleProperty = (): PropertyWhereInput => ({
     status: PropertyStatus.PUBLISHED,
     isDeleted: false,
     OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
@@ -251,9 +270,35 @@ const getProperties = async (actor: RequestUser, query: IQuery) => {
 const getPublicProperties = async (query: IQuery) => {
     const filters = PublicPropertiesQueryZodSchema.parse(query)
 
-    // TODO(room module): rent range, room type, occupants and availability filters
+    const hasRoomFilter =
+        filters.minRent !== undefined ||
+        filters.maxRent !== undefined ||
+        filters.roomType !== undefined ||
+        filters.occupants !== undefined
+
     const where: PropertyWhereInput = {
-        AND: [publiclyVisible(), ...buildListConditions(filters)],
+        AND: [
+            publiclyVisibleProperty(),
+            ...buildListConditions(filters),
+            // At least one AVAILABLE room that matches every room filter
+            ...(hasRoomFilter
+                ? [
+                      {
+                          rooms: {
+                              some: {
+                                  isDeleted: false,
+                                  status: RoomStatus.AVAILABLE,
+                                  monthlyRent: { gte: filters.minRent, lte: filters.maxRent },
+                                  ...(filters.roomType && { roomType: filters.roomType }),
+                                  ...(filters.occupants !== undefined && {
+                                      maxOccupants: { gte: filters.occupants },
+                                  }),
+                              },
+                          },
+                      },
+                  ]
+                : []),
+        ],
     }
 
     return paginate(query, where, { select: publicPropertySelect })
@@ -261,7 +306,7 @@ const getPublicProperties = async (query: IQuery) => {
 
 const getPublicPropertyById = async (propertyId: string) => {
     const property = await prisma.property.findFirst({
-        where: { id: propertyId, ...publiclyVisible() },
+        where: { id: propertyId, ...publiclyVisibleProperty() },
         select: publicPropertySelect,
     })
 
@@ -353,7 +398,13 @@ const publishProperty = async (actor: RequestUser, propertyId: string) => {
         )
     }
 
-    // TODO(room module): require at least one room before publishing (docs/domain.md)
+    const liveRooms = await prisma.room.count({
+        where: { propertyId: property.id, isDeleted: false },
+    })
+
+    if (liveRooms === 0) {
+        throw new AppError(httpStatus.BAD_REQUEST, 'Add At Least One Room Before Publishing')
+    }
 
     await prisma.$transaction(async (tx) => {
         const { count } = await tx.property.updateMany({
@@ -429,17 +480,39 @@ const disableProperty = async (actor: RequestUser, propertyId: string) => {
 const archiveProperty = async (actor: RequestUser, propertyId: string) => {
     const property = await findManageableProperty(actor, propertyId)
 
-    // TODO(rental module): refuse (409) while any room of this property has a PENDING/ACTIVE rental
+    // A reserved/occupied room means a tenant is moving in or living there
+    const rentedRooms = await prisma.room.count({
+        where: {
+            propertyId: property.id,
+            isDeleted: false,
+            status: { in: [RoomStatus.RESERVED, RoomStatus.OCCUPIED] },
+        },
+    })
+
+    if (rentedRooms > 0) {
+        throw new AppError(
+            httpStatus.CONFLICT,
+            "This Property Has Reserved Or Occupied Rooms And Can't Be Removed",
+        )
+    }
+
+    const deletedAt = new Date()
 
     await prisma.$transaction(async (tx) => {
         const { count } = await tx.property.updateMany({
             where: { id: property.id, isDeleted: false },
-            data: { isDeleted: true, deletedAt: new Date(), status: PropertyStatus.ARCHIVED },
+            data: { isDeleted: true, deletedAt, status: PropertyStatus.ARCHIVED },
         })
 
         if (count === 0) {
             throw new AppError(httpStatus.NOT_FOUND, 'Property Not Found')
         }
+
+        // Its rooms leave with it (kept for history)
+        await tx.room.updateMany({
+            where: { propertyId: property.id, isDeleted: false },
+            data: { isDeleted: true, deletedAt, status: RoomStatus.UNAVAILABLE },
+        })
 
         await createAuditLog(tx, {
             actor,
