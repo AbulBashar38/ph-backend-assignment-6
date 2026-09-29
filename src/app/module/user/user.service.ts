@@ -3,6 +3,7 @@ import httpStatus from 'http-status'
 import {
     AuditAction,
     PropertyStatus,
+    RentalStatus,
     Role,
     RoomStatus,
     UserStatus,
@@ -17,6 +18,7 @@ import { authTokenUtils } from '../../utils/authTokens'
 import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
+import { cancelPendingApplications } from '../application/application.utils'
 import { cancelOpenViewings } from '../viewing/viewing.utils'
 import { USER_SEARCHABLE_FIELDS, USER_SORTABLE_FIELDS } from './user.constant'
 import type { IDeleteUserPayload, IUpdateUserPayload } from './user.interface'
@@ -283,6 +285,23 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
         }
     }
 
+    // A tenant who is about to move in, or living somewhere, must end that rental first
+    if (user.role === Role.TENANT) {
+        const liveRentals = await prisma.rental.count({
+            where: {
+                tenantId: user.id,
+                status: { in: [RentalStatus.PENDING, RentalStatus.ACTIVE] },
+            },
+        })
+
+        if (liveRentals > 0) {
+            throw new AppError(
+                httpStatus.CONFLICT,
+                "This Tenant Has A Pending Or Active Rental, So The Account Can't Be Deleted Yet",
+            )
+        }
+    }
+
     const deletedAt = new Date()
 
     await prisma.$transaction(async (tx) => {
@@ -304,16 +323,20 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
 
         // Open viewings can't happen any more: cancel them and tell the other side
         if (user.role === Role.OWNER) {
-            await cancelOpenViewings(
+            const ownersSide = { property: { ownerId: user.id } }
+            await cancelOpenViewings(tx, ownersSide, 'The owner closed their account', 'tenant')
+            await cancelPendingApplications(
                 tx,
-                { property: { ownerId: user.id } },
+                ownersSide,
                 'The owner closed their account',
                 'tenant',
             )
         } else if (user.role === Role.TENANT) {
-            await cancelOpenViewings(
+            const tenantsSide = { tenantId: user.id }
+            await cancelOpenViewings(tx, tenantsSide, 'The tenant closed their account', 'owner')
+            await cancelPendingApplications(
                 tx,
-                { tenantId: user.id },
+                tenantsSide,
                 'The tenant closed their account',
                 'owner',
             )
@@ -333,9 +356,6 @@ const deleteUser = async (actor: RequestUser, userId: string, payload: IDeleteUs
             previousData: { status: user.status, role: user.role, email: user.email },
             newData: { status: UserStatus.DELETED, deletedBy: isSelf ? 'self' : 'admin' },
         })
-
-        // TODO(rental/application modules): a TENANT with a PENDING/ACTIVE rental → 409, and cancel
-        // pending applications/viewings (docs/domain.md → User update & delete)
     })
 
     // Log the deleted user out everywhere; auth() already rejects their access token because isDeleted is set

@@ -6,7 +6,7 @@ interface IAuditLogInput {
     // null for system actions (cron jobs)
     actor: Pick<RequestUser, 'userId' | 'role'> | null
     action: AuditAction
-    resource: 'User' | 'Property' | 'Room'
+    resource: 'User' | 'Property' | 'Room' | 'Application' | 'Rental'
     resourceId: string
     previousData?: unknown
     newData?: unknown

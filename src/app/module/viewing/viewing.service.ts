@@ -181,11 +181,7 @@ type TStatusPayload<S extends IUpdateViewingStatusPayload['status']> = Extract<
     { status: S }
 >
 
-const cancelViewing = async (
-    actor: RequestUser,
-    viewing: TViewing,
-    payload: TStatusPayload<'CANCELLED'>,
-) => {
+const cancelViewing = async (viewing: TViewing, payload: TStatusPayload<'CANCELLED'>) => {
     assertStatusIn(viewing, OPEN_VIEWING_STATUSES, 'Cancelled')
 
     return transition(
@@ -314,7 +310,7 @@ const updateViewingStatus = async (
             )
         }
 
-        return cancelViewing(actor, viewing, payload)
+        return cancelViewing(viewing, payload)
     }
 
     assertPropertyOwnerOrAdmin(actor, viewing)

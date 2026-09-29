@@ -32,6 +32,8 @@ model Property {
   rooms  Room[]
 
   viewingRequests ViewingRequest[]
+  applications    Application[]
+  rentals         Rental[]
 
   @@index([ownerId], name: "idx_property_ownerId")
   @@index([status, isDeleted], name: "idx_property_status_isDeleted")

@@ -24,6 +24,8 @@ model Room {
   images RoomImage[]
 
   viewingRequests ViewingRequest[]
+  applications    Application[]
+  rentals         Rental[]
 
   @@index([propertyId], name: "idx_room_propertyId")
   @@index([status, isDeleted], name: "idx_room_status_isDeleted")

@@ -18,6 +18,7 @@ import { createAuditLog } from '../../utils/auditLog'
 import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
+import { cancelPendingApplications } from '../application/application.utils'
 import { cancelOpenViewings } from '../viewing/viewing.utils'
 import {
     MAX_IMAGES_PER_PROPERTY,
@@ -516,6 +517,12 @@ const archiveProperty = async (actor: RequestUser, propertyId: string) => {
         })
 
         await cancelOpenViewings(
+            tx,
+            { propertyId: property.id },
+            'The property was removed from listings',
+            'tenant',
+        )
+        await cancelPendingApplications(
             tx,
             { propertyId: property.id },
             'The property was removed from listings',

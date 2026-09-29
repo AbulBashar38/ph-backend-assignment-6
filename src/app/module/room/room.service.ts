@@ -15,6 +15,7 @@ import { createAuditLog } from '../../utils/auditLog'
 import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
+import { cancelPendingApplications } from '../application/application.utils'
 import { publiclyVisibleProperty } from '../property/property.service'
 import { cancelOpenViewings } from '../viewing/viewing.utils'
 import { MAX_IMAGES_PER_ROOM, ROOM_SEARCHABLE_FIELDS, ROOM_SORTABLE_FIELDS } from './room.constant'
@@ -416,6 +417,7 @@ const archiveRoom = async (actor: RequestUser, roomId: string) => {
         }
 
         await cancelOpenViewings(tx, { roomId: room.id }, 'The room was removed', 'tenant')
+        await cancelPendingApplications(tx, { roomId: room.id }, 'The room was removed', 'tenant')
 
         await createAuditLog(tx, {
             actor,

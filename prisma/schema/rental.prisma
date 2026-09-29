@@ -1,0 +1,36 @@
+// A tenant renting a whole room, created when an application is approved. Open-ended monthly; never deleted.
+model Rental {
+  id String @id @default(uuid(7))
+
+  monthlyRent Int // whole BDT, copied from the room at approval (later rent changes don't affect it)
+  startDate   DateTime
+  endDate     DateTime?
+
+  status            RentalStatus @default(PENDING)
+  activatedAt       DateTime?
+  completedAt       DateTime?
+  terminatedAt      DateTime?
+  terminationReason String?
+
+  // The roomId while PENDING or ACTIVE, null afterwards: the DATABASE refuses two live rentals for one room
+  liveRoomKey String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applicationId String      @unique
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  tenantId      String
+  tenant        User        @relation("RentalTenant", fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  ownerId       String
+  owner         User        @relation("RentalOwner", fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  propertyId    String
+  property      Property    @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  roomId        String
+  room          Room        @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([tenantId, status], name: "idx_rental_tenant_status")
+  @@index([ownerId, status], name: "idx_rental_owner_status")
+  @@index([roomId], name: "idx_rental_roomId")
+  @@map("rentals")
+}

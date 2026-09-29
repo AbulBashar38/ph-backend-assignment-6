@@ -2,9 +2,11 @@ import { OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi'
 import { registry } from './registry'
 
 // Each module's *.openapi.ts registers its routes on import
+import '../module/application/application.openapi'
 import '../module/auth/auth.openapi'
 import '../module/notification/notification.openapi'
 import '../module/property/property.openapi'
+import '../module/rental/rental.openapi'
 import '../module/room/room.openapi'
 import '../module/roommate/roommate.openapi'
 import '../module/user/user.openapi'

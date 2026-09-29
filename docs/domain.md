@@ -20,8 +20,8 @@ role, so services check it (e.g. `findActiveOwner` in `property.service.ts`).
 | `Room` | propertyId, name, roomType, monthlyRent **Int (whole taka)**, maxOccupants, description?, amenities `Amenity[]`, availableFrom?, status, isDeleted, deletedAt | **Implemented.** One tenant rents the **whole room**; `maxOccupants` is information only. Name unique among the property's live rooms |
 | `RoomImage` | roomId, url, publicId, createdAt | **Implemented.** Max 10 per room |
 | `ViewingRequest` | tenantId, propertyId, roomId?, preferredAt, message?, status, scheduledAt?, ownerNote?, respondedAt?, cancelledAt?, cancellationReason?, completedAt? | **Implemented.** Never deleted, only changes status. One open request per tenant per property/room |
-| `Application` | tenantId, propertyId, roomId, message?, documents Json?, status, expiresAt, reviewedAt?, rejectionReason? | Mirrors the example's `reviewedAt` / `rejectionReason` |
-| `Rental` | applicationId @unique, tenantId, ownerId, propertyId, roomId, monthlyRent (Int), startDate, endDate?, status | Rent is a snapshot, so don't read the live `Room.monthlyRent` |
+| `Application` | tenantId, propertyId, roomId, moveInDate, message?, status, expiresAt, reviewedAt?, rejectionReason?, cancelledAt?, cancellationReason?, pendingKey? @unique | **Implemented.** Never deleted. `pendingKey` = `tenantId:roomId` while PENDING (null after), so the database refuses a second pending application |
+| `Rental` | applicationId @unique, tenantId, ownerId, propertyId, roomId, monthlyRent (Int snapshot), startDate, endDate?, status, activatedAt?, completedAt?, terminatedAt?, terminationReason?, liveRoomKey? @unique | **Implemented.** Open-ended monthly, never deleted. `liveRoomKey` = roomId while PENDING/ACTIVE, so the database refuses two live rentals for one room |
 | `Payment` | rentalId, tenantId, amount Decimal(10,2), currency @default("BDT"), paymentGateway @default("stripe"), periodStart, periodEnd, dueDate, status, stripeSessionId? @unique, stripePaymentIntentId? @unique, paidAt?, gatewayResponse Json? | One row per rent period, shaped like the example's `Payment`. `@@unique([rentalId, periodStart])` |
 | `Notification` | userId, type (`NotificationType`), title, message, data Json? (ids to link to), isRead, readAt? | **Implemented.** Created with `createNotifications(tx, [...])` (`utils/notification.ts`) in the event's transaction |
 | `AuditLog` | actorId?, actorRole?, action (enum), resource, resourceId, previousData Json?, newData Json?, createdAt | Append-only. `actorId` is null for cron actions |
@@ -60,15 +60,15 @@ Enforce transitions with guard clauses in the service, the way the example's `up
 (`if (x.status !== ApplicationStatus.PENDING) throw new AppError(httpStatus.CONFLICT, \`Application Is Already ${status}\`)`).
 For contended records, the final write is also conditional (see [Concurrency](#concurrency-pattern-use-everywhere-a-status-gates-a-write)).
 
-**Application**
+**Application** (implemented in `ApplicationServices`; all changes via `PATCH /application/:id/status`):
 
 ```text
-PENDING → APPROVED   (owner of the property; room must be AVAILABLE)
-PENDING → REJECTED   (owner)
-PENDING → CANCELLED  (tenant who applied)
-PENDING → EXPIRED    (cron only)
+(tenant)  → PENDING     AVAILABLE room of a public property; move-in today..+180 days; expiresAt = now + APPLICATION_EXPIRY_DAYS
+PENDING   → APPROVED    property owner / admin; not expired; room still AVAILABLE (see rule 4 below)
+PENDING   → REJECTED    property owner / admin (optional rejectionReason), or automatically when a competitor is approved
+PENDING   → CANCELLED   the tenant (optional reason), or automatically when the room/property/an account is removed
+PENDING   → EXPIRED     cron (TODO); until then an expired application simply can't be approved
 ```
-All other states are terminal.
 
 **Room** (implemented in `RoomServices`; conditional updates + audit log):
 
@@ -85,7 +85,16 @@ and deleting their owner's account. Removing a room = soft delete (`isDeleted`, 
 of a `PUBLISHED` property can't be removed. Public room search shows only `AVAILABLE` rooms of publicly visible properties;
 an amenity filter matches if the amenity is on the room **or** its property.
 
-**Rental**: `PENDING → ACTIVE` (first payment), `PENDING → TERMINATED`, `ACTIVE → COMPLETED | TERMINATED`.
+**Rental** (implemented in `RentalServices`; created only by approving an application; ended via `PATCH /rental/:id/status`
+by the tenant, the owner or an admin):
+
+```text
+PENDING → ACTIVE       first rent payment PAID (payments module; room RESERVED → OCCUPIED)
+ACTIVE  → COMPLETED    moved out normally
+PENDING | ACTIVE → TERMINATED   ended early, reason required
+```
+
+Ending a rental releases `liveRoomKey`, sets `endDate`, puts the room back to `AVAILABLE` and notifies the other side.
 
 **Property** (implemented in `PropertyServices`; every change is a conditional `updateMany` + audit log):
 
@@ -184,25 +193,24 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
 - **Done:** an owner with a `RESERVED`/`OCCUPIED` room → 409; otherwise their properties → `ARCHIVED` and rooms removed
   in the same transaction; audit `USER_DELETED` (every delete) and
   `USER_UPDATED` (when an admin edits someone else's account).
-- **To add when those modules exist** (marked `TODO` in the service): refuse while the user has a `PENDING`/`ACTIVE` rental
-  (409); the user's `PENDING` applications → `CANCELLED` (+ notify the other party). Open viewings are already cancelled
-  (`cancelOpenViewings` in `viewing.utils.ts`).
+- **Done:** a tenant with a `PENDING`/`ACTIVE` rental → 409; pending applications and open viewings on either side are
+  cancelled with the other party notified (`cancelPendingApplications`, `cancelOpenViewings`).
 
 ## Business rules and invariants
 
-1. One active application per tenant per room. Enforce in the service **and** with a partial unique index
-   (raw SQL in the migration):
-   `CREATE UNIQUE INDEX uniq_active_application ON applications(tenant_id, room_id) WHERE status = 'PENDING';`
-2. Apply only to rooms that are `AVAILABLE`, in a `PUBLISHED`, non-deleted property. The tenant can't be the owner.
-3. **One PENDING/ACTIVE rental per room.** Partial unique index on `rentals(room_id) WHERE status IN ('PENDING','ACTIVE')`.
-   (Interpretation: a rental covers the whole room. `maxOccupants` is informational.)
-4. Approving an application must happen atomically in one transaction:
-   - `room.updateMany({ where: { id, status: 'AVAILABLE' }, data: { status: 'RESERVED' } })`. If `count === 0`, return 409 "Room is no longer available".
-   - `application.updateMany({ where: { id, status: 'PENDING' }, data: { status: 'APPROVED' } })`. If `count === 0`, return 409.
-   - Create a `Rental` (PENDING) and the first `Payment` (PENDING, due = startDate).
-   - Set all **other** PENDING applications for that room to REJECTED (reason: "Room was rented to another applicant").
-   - Create notifications for the approved and rejected tenants, and write the audit log (same transaction).
-   - After commit: send the `application-status` emails (`sendEmail`, in try/catch).
+1. One pending application per tenant per room: service check **and** the unique `pendingKey` column
+   (`"tenantId:roomId"` while PENDING, `null` afterwards). A double click can't create two.
+2. Apply only to rooms that are `AVAILABLE`, in a publicly visible property.
+3. **One PENDING/ACTIVE rental per room:** the unique `liveRoomKey` column (the roomId while live, `null` afterwards).
+   Interpretation: a rental covers the whole room; `maxOccupants` is informational.
+4. Approving an application happens atomically in one transaction (`approveApplication`):
+   - `room.updateMany({ where: { id, status: 'AVAILABLE' } → RESERVED })`; `count === 0` → 409 "Room Is No Longer Available".
+   - `application.updateMany({ where: { id, status: 'PENDING' } → APPROVED })`; `count === 0` → 409.
+   - Create the `Rental` (PENDING, rent copied from the room, starts on the move-in date or today if that passed).
+   - Every **other** PENDING application for the room → REJECTED ("The room was rented to another applicant").
+   - Notifications (approved tenant + rejected competitors) and audit logs (`APPLICATION_APPROVED`, `RENTAL_CREATED`).
+   - Two approvals racing for one room: exactly one wins (tested); a unique-key clash is also turned into 409.
+   - The first rent `Payment` is created by the payments module (next).
 5. `expiresAt = createdAt + APPLICATION_EXPIRY_DAYS` on application create.
 6. An approved application always has exactly one rental (`Rental.applicationId @unique`).
 7. A PAID `Payment` has a `stripePaymentIntentId`, and Stripe's `amount_total` equalled `amount × 100`.

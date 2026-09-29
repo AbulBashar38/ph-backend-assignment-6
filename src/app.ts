@@ -7,9 +7,11 @@ import config from './app/config'
 import { openApiDocument } from './app/docs'
 import { globalErrorHandler } from './app/middleware/globalErrorHandler'
 import { notFound } from './app/middleware/notFound'
+import { ApplicationRoutes } from './app/module/application/application.route'
 import { AuthRoutes } from './app/module/auth/auth.route'
 import { NotificationRoutes } from './app/module/notification/notification.route'
 import { PropertyRoutes } from './app/module/property/property.route'
+import { RentalRoutes } from './app/module/rental/rental.route'
 import { RoomRoutes } from './app/module/room/room.route'
 import { RoommateRoutes } from './app/module/roommate/roommate.route'
 import { UserRoutes } from './app/module/user/user.route'
@@ -45,6 +47,8 @@ app.use('/api/v1/property', PropertyRoutes)
 app.use('/api/v1/room', RoomRoutes)
 app.use('/api/v1/roommate', RoommateRoutes)
 app.use('/api/v1/viewing', ViewingRoutes)
+app.use('/api/v1/application', ApplicationRoutes)
+app.use('/api/v1/rental', RentalRoutes)
 app.use('/api/v1/notification', NotificationRoutes)
 
 // Basic route

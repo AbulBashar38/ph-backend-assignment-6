@@ -1,0 +1,35 @@
+// A tenant applying to rent a room. Never deleted: it only changes status.
+model Application {
+  id String @id @default(uuid(7))
+
+  moveInDate DateTime
+  message    String?
+
+  status             ApplicationStatus @default(PENDING)
+  expiresAt          DateTime // after this, a PENDING application can't be approved (and is marked EXPIRED by the cron job)
+  reviewedAt         DateTime?
+  rejectionReason    String?
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  // "tenantId:roomId" while PENDING, null afterwards. The unique index makes the DATABASE refuse a second
+  // pending application for the same room by the same tenant (even under double clicks / races).
+  pendingKey String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenantId   String
+  tenant     User     @relation(fields: [tenantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  propertyId String
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  roomId     String
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  rental Rental?
+
+  @@index([tenantId, status], name: "idx_application_tenant_status")
+  @@index([roomId, status], name: "idx_application_room_status")
+  @@index([propertyId], name: "idx_application_propertyId")
+  @@map("applications")
+}

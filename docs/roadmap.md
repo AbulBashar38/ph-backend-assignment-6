@@ -61,9 +61,12 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 
 ## Phase 4: Applications & rentals
 
-- [ ] Submit / cancel / lists, with a partial unique index for one PENDING application per tenant per room
-- [ ] Approve in one `tx` (conditional room + application updates, rental + first payment, reject competitors, notify, audit)
-- [ ] Reject; rental terminate/complete frees the room
+- [x] Apply, role-scoped lists and details; one status endpoint (approve / reject / cancel)
+- [x] Atomic approve: room RESERVED, PENDING rental, competitors rejected, notifications + audit; DB unique keys against
+      double pending applications and two live rentals per room
+- [x] Rentals: role-scoped lists and details; complete / terminate frees the room
+- [x] Cascades: room / property / account removal cancels pending applications; tenant with a live rental can't delete the account
+- [ ] Cron: pending applications past `expiresAt` → EXPIRED (with the cron step)
 
 ## Phase 5: Payments (Stripe)
 
