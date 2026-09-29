@@ -33,4 +33,6 @@ export default {
     // Days a PENDING application stays open before it expires
     application_expiry_days: Number(process.env.APPLICATION_EXPIRY_DAYS) || 7,
     swagger_enabled: process.env.SWAGGER_ENABLED,
+    // Background jobs run unless CRON_ENABLED=false (e.g. an instance that should only serve requests)
+    cron_enabled: process.env.CRON_ENABLED !== 'false',
 }

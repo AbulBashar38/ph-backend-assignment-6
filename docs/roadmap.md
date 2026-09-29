@@ -9,10 +9,10 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
       the DB name, and the `package.json` name/description
 - [x] Shared infrastructure for auth: `utils/AppError.ts`, `middleware/validateRequest.ts`, `lib/redis.ts`, `lib/nodemailer.ts`,
       `utils/authTokens.ts`, `utils/otp.ts`, `utils/sendEmail.ts`, `utils/setAuthCookie.ts`
-- [ ] Remaining infrastructure: `lib/cron.ts` (Google, pagination, Multer/Cloudinary done)
+- [x] Remaining infrastructure: `lib/cron.ts` (Google, pagination, Multer/Cloudinary done)
 - [x] `config/index.ts` + `.env.example` (placeholders) for DB, JWT, super admin, Redis, SMTP, Swagger
 - [x] Add env vars as features land (Google, Cloudinary, Stripe, `APPLICATION_EXPIRY_DAYS`)
-- [x] `server.ts` boot order: DB → Redis → mailer verify (warn only) → seeds → listen (add cron when it exists)
+- [x] `server.ts` boot order: DB → Redis → mailer verify (warn only) → seeds → listen → cron (unless `CRON_ENABLED=false`)
 - [x] Fix bugs in the starter (the example has most of them too):
   - [x] `globalErrorHandler` sends HTTP 500 for everything (use `statusCode`), and hides 4xx messages in production
   - [x] Services throw plain `Error`. Use `AppError` everywhere
@@ -47,7 +47,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
       images (add/remove), admin suspend/restore, soft delete (archive), audit log
 - [x] Property: rent/room filters in public search, rooms in property details, "needs ≥1 room to publish",
       archive refused with reserved/occupied rooms (rooms archived with the property)
-- [ ] Property: cron `expireListings` (PUBLISHED past `expiresAt` → INACTIVE)
+- [x] Property: cron `expireListings` (PUBLISHED past `expiresAt` → INACTIVE)
 - [x] Room: create, list (role-scoped), details, update, status changes with guards, images, soft delete,
       public available-room search and details, audit log
 
@@ -66,7 +66,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
       double pending applications and two live rentals per room
 - [x] Rentals: role-scoped lists and details; complete / terminate frees the room
 - [x] Cascades: room / property / account removal cancels pending applications; tenant with a live rental can't delete the account
-- [ ] Cron: pending applications past `expiresAt` → EXPIRED (with the cron step)
+- [x] Cron: pending applications past `expiresAt` → EXPIRED
 
 ## Phase 5: Payments (Stripe)
 
@@ -76,7 +76,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
       activation + room OCCUPIED, automatic refund of double / late / wrong-amount payments)
 - [x] `payment-success` email with a `pdfkit` receipt; receipt download; role-scoped list, details, session lookup
 - [x] Ending a rental cancels its unpaid bills and expires their open checkouts
-- [ ] Cron: `generateRentDues` (month 2+), `sendRentReminders`, `reconcileStalePayments` (with the cron step)
+- [x] Cron: `generateRentDues` (month 2+), `sendRentReminders`, `reconcileStalePayments`
 
 ## Phase 6: Notifications, audit, admin, analytics, cron
 
@@ -84,7 +84,7 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 - [ ] Admin audit-log viewer
 - [ ] Admin: users list/search, block/activate (delete the refresh token), create admin, property moderation
 - [ ] Analytics: admin stats from requirements §18 (example `analytics.service.ts` style), owner stats
-- [ ] `lib/cron.ts`: generateRentDues, sendRentReminders, expirePendingApplications, expireListings, reconcileStalePayments
+- [x] `lib/cron.ts`: generateRentDues, sendRentReminders, expirePendingApplications, expireListings, reconcileStalePayments
 
 ## Phase 7: Polish
 

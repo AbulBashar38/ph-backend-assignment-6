@@ -162,32 +162,27 @@ The flow is in [domain.md](domain.md#payments-stripe).
   `checkout.session.async_payment_failed`, `checkout.session.expired`.
   Test cards: `4242 4242 4242 4242` (success), `4000 0000 0000 0002` (declined).
 
-## Cron (`node-cron`), as in `example-backend/src/app/lib/cron.ts`
+## Cron (`node-cron`), implemented in `lib/cron.ts`
 
-One exported function per job in `lib/cron.ts`, each called from `main()` in `server.ts`:
+The logic of each job is a **service method** (callable and testable on its own); `lib/cron.ts` only schedules them.
+`CRON_JOBS` lists `{ name, schedule, run, lockSeconds }`; `startCronJobs()` is called from `server.ts` after `listen`
+unless `CRON_ENABLED=false`. Improvements over the example (one copy-pasted `cron.schedule` + try/catch per job):
 
-```ts
-export const expirePendingApplications = () => {
-    cron.schedule('0 * * * *', async () => {
-        try {
-            const count = await ApplicationServices.expireStaleApplications()
-            if (count > 0) console.log(`Cron: expired ${count} pending applications`)
-        } catch (error) {
-            console.log('Cron: failed to expire applications', error)
-        }
-    }, { timezone: 'Asia/Dhaka' })
-}
-```
+- One runner, `runCronJob(job)`: catches and logs errors (never crashes the process), logs how many records changed.
+- `timezone: 'Asia/Dhaka'` and `noOverlap: true` (a slow run is never started twice in one process).
+- A Redis lock `cron-lock:{name}` (`SET NX EX lockSeconds`, released only by its owner): with several API
+  instances, only one runs each tick.
+- Every job is **idempotent** (conditional updates, unique keys, Redis de-duplication), so a re-run or a run after
+  downtime is safe, and big backlogs are processed 100 rows at a time (`utils/runInBatches.ts`, by id cursor).
+- Jobs have no user, so their audit logs have `actor: null`.
 
-Put the logic in a service method (so it's callable and testable), and keep the cron wrapper thin. Every job is idempotent.
-
-| Function | Schedule | Does |
-|---|---|---|
-| `generateRentDues` | `0 1 * * *` | For each ACTIVE rental, create the next `Payment` with `createRentPayment(tx, rental, n)` when due within 7 days (`@@unique([rentalId, periodStart])` makes it safe to re-run) |
-| `sendRentReminders` | `0 9 * * *` | PENDING rent payments due in 3 days / 1 day → notification + `rent-reminder.ejs` (de-duplicated by the Redis key) |
-| `expirePendingApplications` | `0 * * * *` | PENDING applications past `expiresAt` → EXPIRED + notify the tenant + audit |
-| `expireListings` | `30 0 * * *` | PUBLISHED properties past `expiresAt` → INACTIVE |
-| `reconcileStalePayments` | `*/15 * * * *` | Payments with an open Stripe session older than 40 min → retrieve the session and apply its real state |
+| Job (`name`) | Schedule | Service method | Does |
+|---|---|---|---|
+| `generate-rent-dues` | `0 1 * * *` | `PaymentServices.generateRentDues` | For each ACTIVE rental, create every next month's bill due within 7 days (catches up after downtime); `RENT_BILL_CREATED` notification. `@@unique([rentalId, periodStart])` refuses duplicates |
+| `send-rent-reminders` | `0 9 * * *` | `PaymentServices.sendRentReminders` | Unpaid bills of live rentals due in 3 days / 1 day → `RENT_DUE` notification + `rent-reminder.ejs`; once each (Redis `rent-reminder-sent:{paymentId}:{daysLeft}`, 7 d) |
+| `expire-pending-applications` | `0 * * * *` | `ApplicationServices.expireStaleApplications` | PENDING past `expiresAt` → EXPIRED, `pendingKey` freed, tenant notified, audit `APPLICATION_EXPIRED` |
+| `expire-listings` | `30 0 * * *` | `PropertyServices.expireListings` | PUBLISHED past `expiresAt` → INACTIVE, owner notified (`LISTING_EXPIRED`), audit `PROPERTY_EXPIRED` |
+| `reconcile-stale-payments` | `*/15 * * * *` | `PaymentServices.reconcileStalePayments` | PENDING bills whose checkout expired 10+ min ago: retrieve the session **from Stripe's API** and apply the same handling as the webhook (paid → settle, expired → CANCELLED) |
 
 ## Environment variables (names follow the example)
 
@@ -204,5 +199,6 @@ SMTP_USER, SMTP_PASSWORD, EMAIL_SENDER
 CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
 STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET
 APPLICATION_EXPIRY_DAYS
+CRON_ENABLED
 SWAGGER_ENABLED (optional; Swagger is always on outside production)
 ```

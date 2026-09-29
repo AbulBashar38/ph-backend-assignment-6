@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { addDays, addMonths } from 'date-fns'
 import httpStatus from 'http-status'
 import type Stripe from 'stripe'
 import type { Prisma } from '../../../generated/prisma/client'
@@ -21,7 +22,9 @@ import { AppError } from '../../utils/AppError'
 import { createAuditLog } from '../../utils/auditLog'
 import { createNotifications } from '../../utils/notification'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
+import { isUniqueViolation } from '../../utils/prismaErrors'
 import { isAdminRole } from '../../utils/roles'
+import { afterIdFilter, runInBatches } from '../../utils/runInBatches'
 import { formatEmailDate, sendEmailSafely } from '../../utils/sendEmail'
 import { LIVE_RENTAL_STATUSES } from '../rental/rental.constant'
 import {
@@ -31,13 +34,18 @@ import {
     MIN_REUSE_MINUTES,
     PAYABLE_STATUSES,
     PAYMENT_SORTABLE_FIELDS,
+    RENT_BILL_DAYS_AHEAD,
+    RENT_REMINDER_DAYS,
+    reminderSentKey,
+    STALE_SESSION_GRACE_MINUTES,
 } from './payment.constant'
 import { generatePaymentReceipt } from './payment.receipt'
-import { describePeriod, formatDay, formatTaka } from './payment.utils'
+import { createRentPayment, describePeriod, formatDay, formatTaka } from './payment.utils'
 import { PaymentsQueryZodSchema } from './payment.validation'
 
 const RESOURCE = 'Payment'
 const MINUTE_MS = 60 * 1000
+const DAY_MS = 24 * 60 * MINUTE_MS
 
 const personSelect = { id: true, name: true, imageUrl: true, phone: true } as const
 
@@ -716,6 +724,221 @@ const getPaymentReceipt = async (actor: RequestUser, paymentId: string) => {
     return { pdf, filename: `receipt-${payment.id}.pdf` }
 }
 
+// ---------- cron ----------
+
+/**
+ * Cron (daily): for every ACTIVE rental, create each next month's bill once it's due within RENT_BILL_DAYS_AHEAD days
+ * (catches up if the server was down). Safe to re-run: `@@unique([rentalId, periodStart])` refuses duplicates.
+ */
+const generateRentDues = () => {
+    const horizon = addDays(new Date(), RENT_BILL_DAYS_AHEAD)
+
+    return runInBatches(
+        (afterId, take) =>
+            prisma.rental.findMany({
+                where: { status: RentalStatus.ACTIVE, ...afterIdFilter(afterId) },
+                select: {
+                    id: true,
+                    tenantId: true,
+                    monthlyRent: true,
+                    startDate: true,
+                    property: { select: { title: true } },
+                    room: { select: { name: true } },
+                    payments: {
+                        select: { periodNumber: true },
+                        orderBy: { periodNumber: 'desc' },
+                        take: 1,
+                    },
+                },
+                orderBy: { id: 'asc' },
+                take,
+            }),
+        async (rentals) => {
+            let created = 0
+
+            for (const rental of rentals) {
+                let periodNumber = (rental.payments[0]?.periodNumber ?? 0) + 1
+
+                while (addMonths(rental.startDate, periodNumber - 1) <= horizon) {
+                    try {
+                        const bill = await prisma.$transaction(async (tx) => {
+                            // Lock the rental row (like ending a rental does) and make sure it's still ACTIVE
+                            const { count } = await tx.rental.updateMany({
+                                where: { id: rental.id, status: RentalStatus.ACTIVE },
+                                data: { status: RentalStatus.ACTIVE },
+                            })
+                            if (count === 0) return null
+
+                            const payment = await createRentPayment(tx, rental, periodNumber)
+
+                            await createNotifications(tx, [
+                                {
+                                    userId: rental.tenantId,
+                                    type: NotificationType.RENT_BILL_CREATED,
+                                    title: 'New Rent Bill',
+                                    message: `Your rent of ${formatTaka(payment.amount)} for ${rental.room.name} at "${rental.property.title}" (${describePeriod(payment)}) is due on ${formatDay(payment.dueDate)}.`,
+                                    data: { paymentId: payment.id, rentalId: rental.id },
+                                },
+                            ])
+
+                            return payment
+                        })
+
+                        if (!bill) break
+                        created++
+                    } catch (error) {
+                        // Another instance created this bill a moment ago
+                        if (!isUniqueViolation(error)) throw error
+                    }
+                    periodNumber++
+                }
+            }
+
+            return created
+        },
+    )
+}
+
+/**
+ * Cron (daily, morning): an unpaid bill of a live rental due in 3 days or 1 day → notification + email
+ * ("Your rent payment of ৳15,000 is due in 3 days"). Each reminder is sent once (Redis key, 7 days).
+ */
+const sendRentReminders = () => {
+    const now = new Date()
+    const latestDue = addDays(now, Math.max(...RENT_REMINDER_DAYS))
+
+    return runInBatches(
+        (afterId, take) =>
+            prisma.payment.findMany({
+                where: {
+                    status: { in: PAYABLE_STATUSES },
+                    dueDate: { gt: now, lte: latestDue },
+                    rental: { status: { in: LIVE_RENTAL_STATUSES } },
+                    ...afterIdFilter(afterId),
+                },
+                include: {
+                    tenant: { select: { name: true, email: true, isDeleted: true } },
+                    rental: {
+                        select: {
+                            property: { select: { title: true } },
+                            room: { select: { name: true } },
+                        },
+                    },
+                },
+                orderBy: { id: 'asc' },
+                take,
+            }),
+        async (bills) => {
+            let reminded = 0
+
+            for (const bill of bills) {
+                // Due at midnight; the job runs in the morning, so "2.6 days away" counts as 3
+                const daysLeft = Math.ceil((bill.dueDate.getTime() - now.getTime()) / DAY_MS)
+                if (!(RENT_REMINDER_DAYS as readonly number[]).includes(daysLeft)) continue
+                if (bill.tenant.isDeleted) continue
+
+                const key = reminderSentKey(bill.id, daysLeft)
+                const claimed = await redisClient.set(key, '1', {
+                    condition: 'NX',
+                    expiration: { type: 'EX', value: 7 * 24 * 60 * 60 },
+                })
+                if (claimed !== 'OK') continue
+
+                const amount = formatTaka(bill.amount)
+                const dueDate = formatDay(bill.dueDate)
+                const place = `${bill.rental.room.name} at "${bill.rental.property.title}"`
+                const dueIn = daysLeft === 1 ? 'tomorrow' : `in ${daysLeft} days`
+
+                try {
+                    await prisma.$transaction((tx) =>
+                        createNotifications(tx, [
+                            {
+                                userId: bill.tenantId,
+                                type: NotificationType.RENT_DUE,
+                                title: 'Rent Due Soon',
+                                message: `Your rent payment of ${amount} for ${place} is due ${dueIn} (${dueDate}).`,
+                                data: { paymentId: bill.id, rentalId: bill.rentalId },
+                            },
+                        ]),
+                    )
+                } catch (error) {
+                    // Let the next run try again
+                    await redisClient.del(key)
+                    throw error
+                }
+
+                await sendEmailSafely({
+                    to: bill.tenant.email,
+                    subject: `Rent due ${dueIn}: ${amount}`,
+                    templateName: 'rent-reminder',
+                    templateData: {
+                        name: bill.tenant.name,
+                        amount,
+                        dueDate,
+                        daysLeft,
+                        propertyTitle: bill.rental.property.title,
+                        roomName: bill.rental.room.name,
+                        period: `Month ${bill.periodNumber}: ${describePeriod(bill)}`,
+                    },
+                    text: `Your rent payment of ${amount} for ${place} is due ${dueIn} (${dueDate}).`,
+                })
+
+                reminded++
+            }
+
+            return reminded
+        },
+    )
+}
+
+/**
+ * Cron (every 15 minutes): a safety net for missed webhooks. PENDING bills whose checkout expired a while ago are
+ * checked with Stripe's API (server to server, with our secret key) and get the same handling the webhook would give.
+ */
+const reconcileStalePayments = () => {
+    const cutoff = new Date(Date.now() - STALE_SESSION_GRACE_MINUTES * MINUTE_MS)
+
+    return runInBatches(
+        (afterId, take) =>
+            prisma.payment.findMany({
+                where: {
+                    status: PaymentStatus.PENDING,
+                    stripeSessionId: { not: null },
+                    stripeSessionExpiresAt: { lte: cutoff },
+                    ...afterIdFilter(afterId),
+                },
+                select: { id: true, stripeSessionId: true },
+                orderBy: { id: 'asc' },
+                take,
+            }),
+        async (bills) => {
+            let reconciled = 0
+
+            for (const bill of bills) {
+                try {
+                    const session = await stripe.checkout.sessions.retrieve(
+                        bill.stripeSessionId as string,
+                    )
+
+                    if (session.status === 'complete' && session.payment_status === 'paid') {
+                        await settlePaidSession(session)
+                        reconciled++
+                    } else if (session.status === 'expired') {
+                        await markSessionExpired(session)
+                        reconciled++
+                    }
+                    // 'complete' + 'unpaid' = a bank debit still processing: its webhook will come
+                } catch (error) {
+                    // One bad session must not stop the rest
+                    console.error(`Reconcile: payment ${bill.id} failed:`, error)
+                }
+            }
+
+            return reconciled
+        },
+    )
+}
+
 export const PaymentServices = {
     createCheckoutSession,
     handleStripeWebhook,
@@ -723,4 +946,7 @@ export const PaymentServices = {
     getPaymentById,
     getPaymentBySessionId,
     getPaymentReceipt,
+    generateRentDues,
+    sendRentReminders,
+    reconcileStalePayments,
 }

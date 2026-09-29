@@ -90,5 +90,6 @@ and every new or changed route is documented in its `x.openapi.ts`.
 - Reproduce the example's known issues (listed in [docs/example-backend.md](docs/example-backend.md#known-issues-in-the-example)).
 - Copy-paste the same block into many services when a small shared helper would do (the example repeats cookie,
   email, upload and pagination code in every file; we don't).
-- Let a client set a payment to `PAID`. Only the signature-verified Stripe webhook can do that.
+- Let a client set a payment to `PAID`. Only Stripe decides: the signature-verified webhook, or the
+  `reconcile-stale-payments` cron reading the session from Stripe's API (same code path, `settlePaidSession`).
 - Add env vars without adding them to `.env.example` (placeholders only, never real secrets) and to `config/index.ts`.

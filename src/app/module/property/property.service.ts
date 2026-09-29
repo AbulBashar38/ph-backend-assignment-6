@@ -3,6 +3,7 @@ import type { Prisma } from '../../../generated/prisma/client'
 import {
     type Amenity,
     AuditAction,
+    NotificationType,
     PropertyStatus,
     type PropertyType,
     Role,
@@ -16,8 +17,10 @@ import type { RequestUser } from '../../middleware/checkAuth'
 import { AppError } from '../../utils/AppError'
 import { createAuditLog } from '../../utils/auditLog'
 import { cloudinaryUpload } from '../../utils/cloudinaryUpload'
+import { createNotifications } from '../../utils/notification'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
+import { afterIdFilter, runInBatches } from '../../utils/runInBatches'
 import { cancelPendingApplications } from '../application/application.utils'
 import { cancelOpenViewings } from '../viewing/viewing.utils'
 import {
@@ -689,6 +692,70 @@ const removeImage = async (actor: RequestUser, propertyId: string, imageId: stri
     return getPropertyDetails(property.id)
 }
 
+// ---------- cron ----------
+
+/**
+ * Cron (daily): PUBLISHED listings past `expiresAt` → INACTIVE (requirement §20), the owner is notified. Public search
+ * already hides them (`publiclyVisibleProperty`); this makes the status match. Rentals and rooms are untouched.
+ */
+const expireListings = () => {
+    const now = new Date()
+
+    return runInBatches(
+        (afterId, take) =>
+            prisma.property.findMany({
+                where: {
+                    status: PropertyStatus.PUBLISHED,
+                    isDeleted: false,
+                    expiresAt: { lte: now },
+                    ...afterIdFilter(afterId),
+                },
+                select: { id: true, title: true, ownerId: true, expiresAt: true },
+                orderBy: { id: 'asc' },
+                take,
+            }),
+        (listings) =>
+            prisma.$transaction(async (tx) => {
+                const expired: typeof listings = []
+
+                for (const property of listings) {
+                    const { count } = await tx.property.updateMany({
+                        where: {
+                            id: property.id,
+                            isDeleted: false,
+                            status: PropertyStatus.PUBLISHED,
+                        },
+                        data: { status: PropertyStatus.INACTIVE },
+                    })
+                    if (count === 0) continue
+
+                    expired.push(property)
+                    await createAuditLog(tx, {
+                        actor: null,
+                        action: AuditAction.PROPERTY_EXPIRED,
+                        resource: RESOURCE,
+                        resourceId: property.id,
+                        previousData: { status: PropertyStatus.PUBLISHED },
+                        newData: { status: PropertyStatus.INACTIVE, expiresAt: property.expiresAt },
+                    })
+                }
+
+                await createNotifications(
+                    tx,
+                    expired.map((property) => ({
+                        userId: property.ownerId,
+                        type: NotificationType.LISTING_EXPIRED,
+                        title: 'Listing Expired',
+                        message: `Your listing "${property.title}" reached its expiry date and is no longer shown to tenants. Update the expiry date and publish it again to relist it.`,
+                        data: { propertyId: property.id },
+                    })),
+                )
+
+                return expired.length
+            }),
+    )
+}
+
 export const PropertyServices = {
     createProperty,
     getProperties,
@@ -702,4 +769,5 @@ export const PropertyServices = {
     moderateProperty,
     addImages,
     removeImage,
+    expireListings,
 }

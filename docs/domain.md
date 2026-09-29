@@ -50,8 +50,8 @@ LifestyleTag:      QUIET | SOCIAL | CLEAN | STUDIOUS | WORK_FROM_HOME | FITNESS 
 NotificationType:  (in the enum now) VIEWING_REQUESTED | VIEWING_APPROVED | VIEWING_REJECTED | VIEWING_RESCHEDULED
                    | VIEWING_CANCELLED | VIEWING_COMPLETED | APPLICATION_SUBMITTED | APPLICATION_APPROVED
                    | APPLICATION_REJECTED | APPLICATION_CANCELLED | RENTAL_STATUS_CHANGED | PAYMENT_SUCCESS
-                   | PAYMENT_RECEIVED | PAYMENT_FAILED | PAYMENT_REFUNDED; (planned) APPLICATION_EXPIRED | RENT_DUE
-                   | ROOM_AVAILABILITY_CHANGED | ACCOUNT_STATUS_CHANGED
+                   | PAYMENT_RECEIVED | PAYMENT_FAILED | PAYMENT_REFUNDED | APPLICATION_EXPIRED | RENT_BILL_CREATED
+                   | RENT_DUE | LISTING_EXPIRED; (planned) ROOM_AVAILABILITY_CHANGED | ACCOUNT_STATUS_CHANGED
 AuditAction:       see the Audit section below
 ```
 
@@ -130,7 +130,8 @@ PENDING | APPROVED | RESCHEDULED → CANCELLED     tenant; or automatically when
                                                   either account is deleted (the other side is notified)
 ```
 
-**Payment**: `PENDING → PAID` **only** from the verified Stripe webhook. `PENDING → FAILED` (async payment failed) or
+**Payment**: `PENDING → PAID` **only** from Stripe: the verified webhook, or the `reconcile-stale-payments` cron
+reading the session from Stripe's API when a webhook was missed (both call `settlePaidSession`). `PENDING → FAILED` (async payment failed) or
 `CANCELLED` (checkout expired) via Stripe events. While the rental is live, FAILED/CANCELLED can be retried (a new
 checkout session sets the status back to PENDING). When the rental ends, unpaid bills become CANCELLED for good.
 
@@ -238,7 +239,7 @@ transaction, which is a bug; don't copy it. Pass `tx` into helpers: `createAudit
 Implemented: `PaymentServices`, helpers in `payment.utils.ts`, receipt in `payment.receipt.ts`.
 
 **Bills.** One `Payment` per rent month, created by the system: month 1 inside `approveApplication`
-(`createRentPayment(tx, rental, 1)`), later months by the `generateRentDues` cron (next). Periods are counted from
+(`createRentPayment(tx, rental, 1)`), later months by the `generate-rent-dues` cron, 7 days before they are due. Periods are counted from
 `rental.startDate` (`addMonths(startDate, n - 1)`, not chained, so the 31st doesn't drift), `periodEnd` is exclusive,
 `dueDate = periodStart` (rent is paid in advance), `amount` = `rental.monthlyRent` in **whole taka (Int)**.
 The client never sends an amount.
@@ -331,5 +332,5 @@ Add new actions to the `AuditAction` enum as modules are built. **In the enum no
 PROPERTY_CREATED, PROPERTY_UPDATED, PROPERTY_PUBLISHED, PROPERTY_DISABLED, PROPERTY_ARCHIVED, PROPERTY_SUSPENDED,
 PROPERTY_RESTORED, ROOM_CREATED, ROOM_UPDATED, ROOM_STATUS_CHANGED, ROOM_ARCHIVED, APPLICATION_SUBMITTED,
 APPLICATION_APPROVED, APPLICATION_REJECTED, APPLICATION_CANCELLED, RENTAL_CREATED, RENTAL_STATUS_CHANGED,
-PAYMENT_COMPLETED, PAYMENT_FAILED, PAYMENT_REFUNDED` (payment actions are written by the webhook with a null actor).
-**Planned:** `APPLICATION_EXPIRED, USER_BLOCKED, USER_ACTIVATED, VIEWING_STATUS_CHANGED`
+PAYMENT_COMPLETED, PAYMENT_FAILED, PAYMENT_REFUNDED, APPLICATION_EXPIRED, PROPERTY_EXPIRED` (payment and cron
+actions have a null actor). **Planned:** `USER_BLOCKED, USER_ACTIVATED, VIEWING_STATUS_CHANGED`

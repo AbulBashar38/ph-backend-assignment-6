@@ -24,6 +24,15 @@ interface IEmailTemplateData {
         isFirstPayment: boolean
         moveInDate: string
     }
+    'rent-reminder': {
+        name: string
+        amount: string
+        dueDate: string
+        daysLeft: number
+        propertyTitle: string
+        roomName: string
+        period: string
+    }
 }
 
 export type TEmailTemplate = keyof IEmailTemplateData

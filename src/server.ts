@@ -1,5 +1,6 @@
 import app from './app'
 import config from './app/config'
+import { startCronJobs } from './app/lib/cron'
 import { transporter } from './app/lib/nodemailer'
 import { prisma } from './app/lib/prisma'
 import { redisClient } from './app/lib/redis'
@@ -31,6 +32,10 @@ const main = async () => {
         app.listen(PORT, () => {
             console.log(`Server is running on port ${PORT}`)
         })
+
+        if (config.cron_enabled) {
+            startCronJobs()
+        }
     } catch (error) {
         console.error('Error starting the server:', error)
         await prisma.$disconnect()

@@ -1,5 +1,5 @@
 import httpStatus from 'http-status'
-import { Prisma } from '../../../generated/prisma/client'
+import type { Prisma } from '../../../generated/prisma/client'
 import {
     ApplicationStatus,
     AuditAction,
@@ -17,7 +17,9 @@ import { AppError } from '../../utils/AppError'
 import { createAuditLog } from '../../utils/auditLog'
 import { createNotifications } from '../../utils/notification'
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
+import { isUniqueViolation } from '../../utils/prismaErrors'
 import { isAdminRole } from '../../utils/roles'
+import { afterIdFilter, runInBatches } from '../../utils/runInBatches'
 import { formatEmailDate } from '../../utils/sendEmail'
 import { createRentPayment } from '../payment/payment.utils'
 import { publiclyVisibleProperty } from '../property/property.service'
@@ -56,9 +58,6 @@ type TStatusPayload<S extends IUpdateApplicationStatusPayload['status']> = Extra
     IUpdateApplicationStatusPayload,
     { status: S }
 >
-
-const isUniqueViolation = (error: unknown) =>
-    error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
 
 const findApplication = async (applicationId: string) => {
     const application = await prisma.application.findUnique({
@@ -496,9 +495,78 @@ const getApplicationById = async (actor: RequestUser, applicationId: string) => 
     return application
 }
 
+// ---------- cron ----------
+
+/**
+ * Cron (hourly): PENDING applications past `expiresAt` → EXPIRED, the tenant is notified. Approving already refuses an
+ * expired application, so this just makes the status true and frees `pendingKey` (the tenant may apply again).
+ */
+const expireStaleApplications = () => {
+    const now = new Date()
+
+    return runInBatches(
+        (afterId, take) =>
+            prisma.application.findMany({
+                where: {
+                    status: ApplicationStatus.PENDING,
+                    expiresAt: { lte: now },
+                    ...afterIdFilter(afterId),
+                },
+                select: {
+                    id: true,
+                    tenantId: true,
+                    property: { select: { id: true, title: true } },
+                    room: { select: { name: true } },
+                },
+                orderBy: { id: 'asc' },
+                take,
+            }),
+        (stale) =>
+            prisma.$transaction(async (tx) => {
+                const expired: typeof stale = []
+
+                for (const application of stale) {
+                    // Conditional: the tenant may have cancelled it a moment ago
+                    const { count } = await tx.application.updateMany({
+                        where: { id: application.id, status: ApplicationStatus.PENDING },
+                        data: { status: ApplicationStatus.EXPIRED, pendingKey: null },
+                    })
+                    if (count === 0) continue
+
+                    expired.push(application)
+                    await createAuditLog(tx, {
+                        actor: null,
+                        action: AuditAction.APPLICATION_EXPIRED,
+                        resource: RESOURCE,
+                        resourceId: application.id,
+                        previousData: { status: ApplicationStatus.PENDING },
+                        newData: { status: ApplicationStatus.EXPIRED },
+                    })
+                }
+
+                await createNotifications(
+                    tx,
+                    expired.map((application) => ({
+                        userId: application.tenantId,
+                        type: NotificationType.APPLICATION_EXPIRED,
+                        title: 'Application Expired',
+                        message: `Your application for "${application.property.title}" (${application.room.name}) expired without a response. You can apply again if the room is still available.`,
+                        data: {
+                            applicationId: application.id,
+                            propertyId: application.property.id,
+                        },
+                    })),
+                )
+
+                return expired.length
+            }),
+    )
+}
+
 export const ApplicationServices = {
     createApplication,
     updateApplicationStatus,
     getApplications,
     getApplicationById,
+    expireStaleApplications,
 }

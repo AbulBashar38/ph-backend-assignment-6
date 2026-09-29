@@ -82,8 +82,9 @@ const idParams = z.object({ id: z.string().meta({ description: 'Payment ID' }) }
 
 const lifecycle =
     'One bill per rent month. Month 1 is created when the application is approved (due on the start date); ' +
-    'paying it activates the rental and the room becomes `OCCUPIED`. `PENDING` → `PAID` **only via the verified ' +
-    'Stripe webhook**. `PENDING` → `FAILED` (payment did not go through) or `CANCELLED` (checkout expired): both can be ' +
+    'paying it activates the rental and the room becomes `OCCUPIED`. `PENDING` → `PAID` **only via Stripe** (the verified ' +
+    "webhook, or the reconcile job reading Stripe's API if a webhook was missed). Later months are billed by a daily " +
+    'job 7 days before they are due. `PENDING` → `FAILED` (payment did not go through) or `CANCELLED` (checkout expired): both can be ' +
     'paid again while the rental is live. Ending a rental cancels its unpaid bills.'
 
 registry.registerPath({
