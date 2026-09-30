@@ -27,6 +27,13 @@ export const CreateApplicationValidationZodSchema = z
                 (date) => date.getTime() <= Date.now() + MAX_MOVE_IN_DAYS_AHEAD * DAY_MS,
                 `Move-In Date Must Be Within ${MAX_MOVE_IN_DAYS_AHEAD} Days`,
             ),
+        // How many people will live in the room (checked against the room's maxOccupants)
+        occupants: z
+            .number('Occupants Must Be A Number')
+            .int('Occupants Must Be A Whole Number')
+            .min(1, 'Occupants Must Be At Least 1')
+            .max(20, 'Occupants Must Be At Most 20')
+            .default(1),
         message: noteSchema('Message').optional(),
     })
     .strict()

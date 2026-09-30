@@ -19,6 +19,13 @@ model Property {
   moderationNote String?
   moderatedAt    DateTime?
 
+  // Search helpers, kept up to date by a database trigger on rooms (migration 20261005100000_search_and_occupancy):
+  // live AVAILABLE rooms of this property, the cheapest of their rents, and the earliest date one can be moved into
+  // (a past date = right away). 0 / null when no room is available.
+  availableRoomCount    Int       @default(0)
+  minAvailableRent      Int?
+  earliestAvailableFrom DateTime?
+
   isDeleted Boolean   @default(false)
   deletedAt DateTime?
   createdAt DateTime  @default(now())
@@ -38,6 +45,8 @@ model Property {
   @@index([ownerId], name: "idx_property_ownerId")
   @@index([status, isDeleted], name: "idx_property_status_isDeleted")
   @@index([city, area], name: "idx_property_city_area")
+  @@index([minAvailableRent], name: "idx_property_minAvailableRent")
+  @@index([earliestAvailableFrom], name: "idx_property_earliestAvailableFrom")
   @@map("properties")
 }
 

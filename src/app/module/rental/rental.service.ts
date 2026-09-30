@@ -17,6 +17,7 @@ import { createNotifications, type INotificationInput } from '../../utils/notifi
 import { buildPaginationMeta, paginationHelper } from '../../utils/paginationHelper'
 import { isAdminRole } from '../../utils/roles'
 import { cancelUnpaidPayments, expireCheckoutSessions } from '../payment/payment.utils'
+import { notifyRoomAvailabilityChanged } from '../room/room.utils'
 import { RENTAL_SORTABLE_FIELDS } from './rental.constant'
 import type { IUpdateRentalStatusPayload } from './rental.interface'
 import { RentalsQueryZodSchema } from './rental.validation'
@@ -159,7 +160,16 @@ const updateRentalStatus = async (
                 id: rental.roomId,
                 status: { in: [RoomStatus.RESERVED, RoomStatus.OCCUPIED] },
             },
-            data: { status: RoomStatus.AVAILABLE },
+            data: { status: RoomStatus.AVAILABLE, currentOccupants: 0 },
+        })
+
+        await notifyRoomAvailabilityChanged(tx, {
+            actorId: actor.userId,
+            ownerId: rental.ownerId,
+            room: rental.room,
+            property: rental.property,
+            status: RoomStatus.AVAILABLE,
+            reason: `the rental was ${isComplete ? 'completed' : 'terminated'}`,
         })
 
         // Unpaid bills are void once the rental ends

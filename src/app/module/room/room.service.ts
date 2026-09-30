@@ -24,6 +24,7 @@ import type {
     IUpdateRoomPayload,
     IUpdateRoomStatusPayload,
 } from './room.interface'
+import { notifyRoomAvailabilityChanged } from './room.utils'
 import { PublicRoomsQueryZodSchema, RoomsQueryZodSchema } from './room.validation'
 
 const RESOURCE = 'Room'
@@ -83,7 +84,7 @@ const findManageableRoom = async (actor: RequestUser, roomId: string) => {
         where: { id: roomId, isDeleted: false, property: { isDeleted: false } },
         include: {
             images: imagesInOrder,
-            property: { select: { id: true, ownerId: true, status: true } },
+            property: { select: { id: true, title: true, ownerId: true, status: true } },
         },
     })
 
@@ -372,9 +373,16 @@ const updateRoomStatus = async (
             previousData: { status: room.status },
             newData: { status: payload.status },
         })
-    })
 
-    // TODO(notification module): notify the owner/tenants when availability changes (requirement §17)
+        await notifyRoomAvailabilityChanged(tx, {
+            actorId: actor.userId,
+            ownerId: room.property.ownerId,
+            room,
+            property: room.property,
+            status: payload.status,
+            reason: 'changed by an admin',
+        })
+    })
 
     return getRoomDetails(room.id)
 }
@@ -426,6 +434,15 @@ const archiveRoom = async (actor: RequestUser, roomId: string) => {
             resourceId: room.id,
             previousData: { status: room.status },
             newData: { isDeleted: true },
+        })
+
+        await notifyRoomAvailabilityChanged(tx, {
+            actorId: actor.userId,
+            ownerId: room.property.ownerId,
+            room,
+            property: room.property,
+            status: RoomStatus.UNAVAILABLE,
+            reason: 'an admin removed the room',
         })
     })
 }

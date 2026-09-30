@@ -3,6 +3,7 @@ model Rental {
   id String @id @default(uuid(7))
 
   monthlyRent Int // whole BDT, copied from the room at approval (later rent changes don't affect it)
+  occupants   Int       @default(1) // copied from the application
   startDate   DateTime
   endDate     DateTime?
 

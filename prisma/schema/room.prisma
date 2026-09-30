@@ -2,14 +2,16 @@
 model Room {
   id String @id @default(uuid(7))
 
-  name          String // e.g. "Room 2A", unique among the property's live rooms (checked in the service)
-  roomType      RoomType
-  monthlyRent   Int // whole BDT (taka)
-  maxOccupants  Int
-  description   String?
-  amenities     Amenity[]
+  name             String // e.g. "Room 2A", unique among the property's live rooms (checked in the service)
+  roomType         RoomType
+  monthlyRent      Int // whole BDT (taka)
+  maxOccupants     Int
+  // People living there now: the rental's occupants while OCCUPIED, else 0 (set by payment / rental end)
+  currentOccupants Int       @default(0)
+  description      String?
+  amenities        Amenity[]
   // null = available right away
-  availableFrom DateTime?
+  availableFrom    DateTime?
 
   status RoomStatus @default(AVAILABLE)
 

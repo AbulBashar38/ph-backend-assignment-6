@@ -27,6 +27,7 @@ import { isAdminRole } from '../../utils/roles'
 import { afterIdFilter, runInBatches } from '../../utils/runInBatches'
 import { formatEmailDate, sendEmailSafely } from '../../utils/sendEmail'
 import { LIVE_RENTAL_STATUSES } from '../rental/rental.constant'
+import { notifyRoomAvailabilityChanged } from '../room/room.utils'
 import {
     CHECKOUT_LOCK_SECONDS,
     CHECKOUT_SESSION_MINUTES,
@@ -467,7 +468,19 @@ const settlePaidSession = async (session: Stripe.Checkout.Session) => {
             if (activated.count > 0) {
                 await tx.room.updateMany({
                     where: { id: payment.rental.roomId, status: RoomStatus.RESERVED },
-                    data: { status: RoomStatus.OCCUPIED },
+                    data: {
+                        status: RoomStatus.OCCUPIED,
+                        currentOccupants: payment.rental.occupants,
+                    },
+                })
+
+                await notifyRoomAvailabilityChanged(tx, {
+                    actorId: null,
+                    ownerId: payment.rental.ownerId,
+                    room: payment.rental.room,
+                    property: payment.rental.property,
+                    status: RoomStatus.OCCUPIED,
+                    reason: `${payment.tenant.name} paid the first month's rent and is moving in`,
                 })
             }
 

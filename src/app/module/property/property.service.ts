@@ -25,7 +25,9 @@ import { cancelPendingApplications } from '../application/application.utils'
 import { cancelOpenViewings } from '../viewing/viewing.utils'
 import {
     MAX_IMAGES_PER_PROPERTY,
+    NULLS_LAST_SORT_FIELDS,
     PROPERTY_SEARCHABLE_FIELDS,
+    PROPERTY_SORT_ALIASES,
     PROPERTY_SORTABLE_FIELDS,
 } from './property.constant'
 import type {
@@ -49,6 +51,7 @@ const roomSummary = {
         roomType: true,
         monthlyRent: true,
         maxOccupants: true,
+        currentOccupants: true,
         status: true,
         availableFrom: true,
     },
@@ -75,6 +78,9 @@ const publicPropertySelect = {
     amenities: true,
     publishedAt: true,
     createdAt: true,
+    availableRoomCount: true,
+    minAvailableRent: true,
+    earliestAvailableFrom: true,
     images: { select: { id: true, url: true }, ...imagesInOrder },
     // Requirement §7: rooms, prices and availability (status tells which can be applied for)
     rooms: roomSummary,
@@ -165,11 +171,23 @@ const paginate = async <TArgs extends Prisma.PropertyFindManyArgs>(
     where: PropertyWhereInput,
     args: TArgs,
 ) => {
+    const requestedSort = typeof query.sortBy === 'string' ? query.sortBy : undefined
     const { page, limit, skip, sortBy, sortOrder } = paginationHelper(
-        query,
+        {
+            ...query,
+            sortBy: (requestedSort && PROPERTY_SORT_ALIASES[requestedSort]) ?? requestedSort,
+        },
         PROPERTY_SORTABLE_FIELDS,
         'createdAt',
     )
+
+    const orderBy: Prisma.PropertyOrderByWithRelationInput[] = [
+        NULLS_LAST_SORT_FIELDS.includes(sortBy)
+            ? { [sortBy]: { sort: sortOrder, nulls: 'last' } }
+            : { [sortBy]: sortOrder },
+        // Stable order for equal values (same price, same date), so pages never overlap
+        { id: 'asc' },
+    ]
 
     const [data, total] = await prisma.$transaction([
         prisma.property.findMany({
@@ -177,7 +195,7 @@ const paginate = async <TArgs extends Prisma.PropertyFindManyArgs>(
             where,
             skip,
             take: limit,
-            orderBy: { [sortBy]: sortOrder },
+            orderBy,
         } as TArgs),
         prisma.property.count({ where }),
     ])
@@ -279,7 +297,8 @@ const getPublicProperties = async (query: IQuery) => {
         filters.minRent !== undefined ||
         filters.maxRent !== undefined ||
         filters.roomType !== undefined ||
-        filters.occupants !== undefined
+        filters.occupants !== undefined ||
+        filters.availableBy !== undefined
 
     const where: PropertyWhereInput = {
         AND: [
@@ -298,11 +317,18 @@ const getPublicProperties = async (query: IQuery) => {
                                   ...(filters.occupants !== undefined && {
                                       maxOccupants: { gte: filters.occupants },
                                   }),
+                                  ...(filters.availableBy && {
+                                      OR: [
+                                          { availableFrom: null },
+                                          { availableFrom: { lte: filters.availableBy } },
+                                      ],
+                                  }),
                               },
                           },
                       },
                   ]
                 : []),
+            ...(filters.availableOnly ? [{ availableRoomCount: { gt: 0 } }] : []),
         ],
     }
 

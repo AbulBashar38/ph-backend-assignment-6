@@ -31,6 +31,10 @@ const roomCoreFields = {
     roomType: z.enum(RoomType),
     monthlyRent: z.number().int().meta({ description: 'Whole BDT (taka)', example: 15000 }),
     maxOccupants: z.number().int().meta({ example: 2 }),
+    currentOccupants: z.number().int().meta({
+        description: "People living there now: the rental's occupants while OCCUPIED, otherwise 0",
+        example: 0,
+    }),
     description: z.string().nullable(),
     amenities: z.array(z.enum(Amenity)).meta({ example: ['AC', 'ATTACHED_BATHROOM'] }),
     availableFrom: z.iso

@@ -138,6 +138,7 @@ enum NotificationType {
   RENT_DUE
   LISTING_EXPIRED
   ACCOUNT_STATUS_CHANGED
+  ROOM_AVAILABILITY_CHANGED
 }
 
 // PENDING → APPROVED | REJECTED (owner/admin) | CANCELLED (tenant) | EXPIRED (automatic)

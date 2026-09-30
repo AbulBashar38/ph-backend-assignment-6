@@ -23,6 +23,8 @@ import { afterIdFilter, runInBatches } from '../../utils/runInBatches'
 import { formatEmailDate } from '../../utils/sendEmail'
 import { createRentPayment } from '../payment/payment.utils'
 import { publiclyVisibleProperty } from '../property/property.service'
+import { notifyRoomAvailabilityChanged } from '../room/room.utils'
+import { cancelOpenViewings } from '../viewing/viewing.utils'
 import { APPLICATION_SORTABLE_FIELDS, pendingKeyFor } from './application.constant'
 import type {
     ICreateApplicationPayload,
@@ -48,7 +50,16 @@ const applicationInclude = {
             owner: { select: personSelect },
         },
     },
-    room: { select: { id: true, name: true, roomType: true, monthlyRent: true, status: true } },
+    room: {
+        select: {
+            id: true,
+            name: true,
+            roomType: true,
+            monthlyRent: true,
+            maxOccupants: true,
+            status: true,
+        },
+    },
     tenant: { select: { ...personSelect, gender: true, occupation: true } },
     rental: { select: { id: true, status: true, startDate: true } },
 } satisfies Prisma.ApplicationInclude
@@ -97,6 +108,13 @@ const createApplication = async (actor: RequestUser, payload: ICreateApplication
         throw new AppError(httpStatus.CONFLICT, 'This Room Is No Longer Available')
     }
 
+    if (payload.occupants > room.maxOccupants) {
+        throw new AppError(
+            httpStatus.BAD_REQUEST,
+            `This Room Fits At Most ${room.maxOccupants} ${room.maxOccupants === 1 ? 'Person' : 'People'}`,
+        )
+    }
+
     const pendingKey = pendingKeyFor(actor.userId, room.id)
 
     try {
@@ -107,6 +125,7 @@ const createApplication = async (actor: RequestUser, payload: ICreateApplication
                     propertyId: room.property.id,
                     roomId: room.id,
                     moveInDate: payload.moveInDate,
+                    occupants: payload.occupants,
                     message: payload.message,
                     pendingKey,
                     expiresAt: new Date(Date.now() + config.application_expiry_days * DAY_MS),
@@ -125,6 +144,18 @@ const createApplication = async (actor: RequestUser, payload: ICreateApplication
                         roomId: room.id,
                     },
                 },
+                // Requirement §17 (tenant): confirmation that it was received
+                {
+                    userId: actor.userId,
+                    type: NotificationType.APPLICATION_SUBMITTED,
+                    title: 'Application Submitted',
+                    message: `Your application for "${room.property.title}" (${room.name}) was sent to the owner. It stays open for ${config.application_expiry_days} days.`,
+                    data: {
+                        applicationId: created.id,
+                        propertyId: room.property.id,
+                        roomId: room.id,
+                    },
+                },
             ])
 
             await createAuditLog(tx, {
@@ -132,7 +163,11 @@ const createApplication = async (actor: RequestUser, payload: ICreateApplication
                 action: AuditAction.APPLICATION_SUBMITTED,
                 resource: RESOURCE,
                 resourceId: created.id,
-                newData: { roomId: room.id, moveInDate: payload.moveInDate },
+                newData: {
+                    roomId: room.id,
+                    moveInDate: payload.moveInDate,
+                    occupants: payload.occupants,
+                },
             })
 
             return created
@@ -312,6 +347,7 @@ const approveApplication = async (actor: RequestUser, application: TApplication)
                     propertyId: application.property.id,
                     roomId: application.roomId,
                     monthlyRent: room.monthlyRent,
+                    occupants: application.occupants,
                     startDate,
                     status: RentalStatus.PENDING,
                     liveRoomKey: application.roomId,
@@ -342,6 +378,23 @@ const approveApplication = async (actor: RequestUser, application: TApplication)
                     },
                 })
             }
+
+            // Other tenants' viewings of a room that is now taken are pointless (requirement §26)
+            await cancelOpenViewings(
+                tx,
+                { roomId: application.roomId, tenantId: { not: application.tenantId } },
+                'The room was rented to another tenant',
+                'tenant',
+            )
+
+            await notifyRoomAvailabilityChanged(tx, {
+                actorId: actor.userId,
+                ownerId: application.property.ownerId,
+                room: application.room,
+                property: application.property,
+                status: RoomStatus.RESERVED,
+                reason: `an admin approved ${application.tenant.name}'s application`,
+            })
 
             await createNotifications(tx, [
                 {

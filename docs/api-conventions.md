@@ -107,7 +107,8 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       GET /:id(O/A) · PATCH /:id(O/A) · PATCH /:id/publish(O/A) · PATCH /:id/disable(O/A)
                       POST /:id/images(O/A, multipart `images`, 1–10) · DELETE /:id/images/:imageId(O/A)
                       DELETE /:id(O/A, soft → ARCHIVED) · PATCH /:id/moderate(A only, { action, reason })
-                      GET /public/all-properties🌐 · GET /public/:id🌐
+                      GET /public/all-properties🌐 (sortBy=price | availability | newest | column; availableOnly,
+                      availableBy, minRent, maxRent, roomType, occupants, amenities…) · GET /public/:id🌐
 /api/v1/room          (implemented; "O/A" = owner of the room's property, or any admin)
                       POST /(O/A, JSON with propertyId) · GET /(O → rooms of own properties, A → all) · GET /:id(O/A)
                       PATCH /:id(O/A) · PATCH /:id/status(O/A, AVAILABLE | UNAVAILABLE | MAINTENANCE)

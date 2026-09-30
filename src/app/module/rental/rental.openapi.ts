@@ -29,6 +29,7 @@ const RentalSchema = z
             .number()
             .int()
             .meta({ description: 'Whole taka, copied from the room at approval', example: 15000 }),
+        occupants: z.number().int().meta({ description: 'From the application', example: 1 }),
         startDate: z.iso.datetime(),
         endDate: z.iso
             .datetime()

@@ -34,6 +34,7 @@ const ApplicationSchema = z
         id: z.string(),
         status: z.enum(ApplicationStatus),
         moveInDate: z.iso.datetime(),
+        occupants: z.number().int().meta({ description: 'People moving in', example: 1 }),
         message: z.string().nullable(),
         expiresAt: z.iso
             .datetime()
@@ -61,6 +62,7 @@ const ApplicationSchema = z
             name: z.string(),
             roomType: z.enum(RoomType),
             monthlyRent: z.number().int(),
+            maxOccupants: z.number().int(),
             status: z.enum(RoomStatus),
         }),
         tenant: personSchema.extend({
@@ -82,7 +84,10 @@ registry.registerPath({
     description:
         'The room must be `AVAILABLE` in a published property. `moveInDate`: today or later, within ' +
         `${MAX_MOVE_IN_DAYS_AHEAD} days. One pending application per room (a second one → 409, enforced by the database). ` +
-        'The application expires after `APPLICATION_EXPIRY_DAYS` (default 7). The owner is notified.',
+        "`occupants` (default 1) must fit the room's `maxOccupants` (→ 400). " +
+        'The application expires after `APPLICATION_EXPIRY_DAYS` (default 7). The owner is notified and the tenant ' +
+        "gets a confirmation. Approving it rents the room: competing applications are rejected and other tenants' " +
+        'open viewings of that room are cancelled.',
     security: authSecurity,
     request: {
         body: jsonBody(
@@ -90,6 +95,7 @@ registry.registerPath({
                 example: {
                     roomId: '0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a6c',
                     moveInDate: '2026-11-01T00:00:00Z',
+                    occupants: 2,
                     message: 'I work nearby, non-smoker, can pay rent on the 1st of each month.',
                 },
             }),

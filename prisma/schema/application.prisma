@@ -3,6 +3,8 @@ model Application {
   id String @id @default(uuid(7))
 
   moveInDate DateTime
+  // How many people will live in the room (1..room.maxOccupants)
+  occupants  Int      @default(1)
   message    String?
 
   status             ApplicationStatus @default(PENDING)

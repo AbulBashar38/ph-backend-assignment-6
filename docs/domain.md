@@ -15,13 +15,13 @@ role, so services check it (e.g. `findActiveOwner` in `property.service.ts`).
 |---|---|---|
 | `User` | see [auth.md](auth.md#roles-status-user-model); plus `gender?`, `occupation?` (tenants), `address?` (owners) | **One table for all roles, no Tenant/Owner profile tables** |
 | `RoommateProfile` | tenantId @unique (user id), age, budgetMin, budgetMax (whole taka), preferredCity, preferredArea?, moveInDate, smokingPreference, petPreference (`Preference`), sleepSchedule, lifestyle `LifestyleTag[]`, genderPreference? (null = any), bio?, isActive | **Implemented.** One per tenant, never deleted: `isActive` = roommate search on/off (account deletion turns it off). Gender and occupation live on `User` and can be sent with the profile |
-| `Property` | ownerId, title, description, propertyType, address, city, area, latitude?, longitude?, amenities `Amenity[]`, status, publishedAt?, expiresAt?, moderationNote?, moderatedAt?, isDeleted, deletedAt | **Implemented.** Photos live in `PropertyImage` |
+| `Property` | ownerId, title, description, propertyType, address, city, area, latitude?, longitude?, amenities `Amenity[]`, status, publishedAt?, expiresAt?, moderationNote?, moderatedAt?, availableRoomCount, minAvailableRent?, earliestAvailableFrom?, isDeleted, deletedAt | **Implemented.** Photos live in `PropertyImage`. The three search columns are maintained by a **Postgres trigger on `rooms`** (migration `20261005100000_search_and_occupancy`); never write them from code |
 | `PropertyImage` | propertyId, url, publicId, createdAt | **Implemented.** Max 20 per property; rows are file references, so removing a photo deletes the row (not a soft delete) |
-| `Room` | propertyId, name, roomType, monthlyRent **Int (whole taka)**, maxOccupants, description?, amenities `Amenity[]`, availableFrom?, status, isDeleted, deletedAt | **Implemented.** One tenant rents the **whole room**; `maxOccupants` is information only. Name unique among the property's live rooms |
+| `Room` | propertyId, name, roomType, monthlyRent **Int (whole taka)**, maxOccupants, currentOccupants (the rental's occupants while OCCUPIED, else 0), description?, amenities `Amenity[]`, availableFrom?, status, isDeleted, deletedAt | **Implemented.** One tenant rents the **whole room**; `maxOccupants` is information only. Name unique among the property's live rooms |
 | `RoomImage` | roomId, url, publicId, createdAt | **Implemented.** Max 10 per room |
 | `ViewingRequest` | tenantId, propertyId, roomId?, preferredAt, message?, status, scheduledAt?, ownerNote?, respondedAt?, cancelledAt?, cancellationReason?, completedAt? | **Implemented.** Never deleted, only changes status. One open request per tenant per property/room |
-| `Application` | tenantId, propertyId, roomId, moveInDate, message?, status, expiresAt, reviewedAt?, rejectionReason?, cancelledAt?, cancellationReason?, pendingKey? @unique | **Implemented.** Never deleted. `pendingKey` = `tenantId:roomId` while PENDING (null after), so the database refuses a second pending application |
-| `Rental` | applicationId @unique, tenantId, ownerId, propertyId, roomId, monthlyRent (Int snapshot), startDate, endDate?, status, activatedAt?, completedAt?, terminatedAt?, terminationReason?, liveRoomKey? @unique | **Implemented.** Open-ended monthly, never deleted. `liveRoomKey` = roomId while PENDING/ACTIVE, so the database refuses two live rentals for one room |
+| `Application` | tenantId, propertyId, roomId, moveInDate, occupants (1..room.maxOccupants), message?, status, expiresAt, reviewedAt?, rejectionReason?, cancelledAt?, cancellationReason?, pendingKey? @unique | **Implemented.** Never deleted. `pendingKey` = `tenantId:roomId` while PENDING (null after), so the database refuses a second pending application |
+| `Rental` | applicationId @unique, tenantId, ownerId, propertyId, roomId, monthlyRent (Int snapshot), occupants (from the application), startDate, endDate?, status, activatedAt?, completedAt?, terminatedAt?, terminationReason?, liveRoomKey? @unique | **Implemented.** Open-ended monthly, never deleted. `liveRoomKey` = roomId while PENDING/ACTIVE, so the database refuses two live rentals for one room |
 | `Payment` | rentalId, tenantId, periodNumber, periodStart, periodEnd (exclusive), dueDate, amount **Int (whole taka)**, currency @default("BDT"), status, paidAt?, failedAt?, failureReason?, cancelledAt?, cancellationReason?, paymentGateway @default("stripe"), stripeSessionId? @unique, stripeCheckoutUrl?, stripeSessionExpiresAt?, stripePaymentIntentId? @unique (the payment reference), gatewayResponse Json? (never returned) | **Implemented.** One row per rent month, never deleted. `@@unique([rentalId, periodStart])` |
 | `Notification` | userId, type (`NotificationType`), title, message, data Json? (ids to link to), isRead, readAt? | **Implemented.** Created with `createNotifications(tx, [...])` (`utils/notification.ts`) in the event's transaction |
 | `AuditLog` | actorId?, actorRole?, action (enum), resource, resourceId, previousData Json?, newData Json?, createdAt | Append-only. `actorId` is null for cron actions |
@@ -51,7 +51,8 @@ NotificationType:  (in the enum now) VIEWING_REQUESTED | VIEWING_APPROVED | VIEW
                    | VIEWING_CANCELLED | VIEWING_COMPLETED | APPLICATION_SUBMITTED | APPLICATION_APPROVED
                    | APPLICATION_REJECTED | APPLICATION_CANCELLED | RENTAL_STATUS_CHANGED | PAYMENT_SUCCESS
                    | PAYMENT_RECEIVED | PAYMENT_FAILED | PAYMENT_REFUNDED | APPLICATION_EXPIRED | RENT_BILL_CREATED
-                   | RENT_DUE | LISTING_EXPIRED | ACCOUNT_STATUS_CHANGED; (planned) ROOM_AVAILABILITY_CHANGED
+                   | RENT_DUE | LISTING_EXPIRED | ACCOUNT_STATUS_CHANGED | ROOM_AVAILABILITY_CHANGED (to the owner when an admin,
+                   the tenant or the system changes their room's status: `notifyRoomAvailabilityChanged`, `room.utils.ts`)
 AuditAction:       see the Audit section below
 ```
 
@@ -211,6 +212,7 @@ Deleted or unknown target → 404. Your own ID is `data.id` from `GET /auth/me`.
    - `application.updateMany({ where: { id, status: 'PENDING' } → APPROVED })`; `count === 0` → 409.
    - Create the `Rental` (PENDING, rent copied from the room, starts on the move-in date or today if that passed).
    - Every **other** PENDING application for the room → REJECTED ("The room was rented to another applicant").
+   - Other tenants' open viewings of that room → CANCELLED ("The room was rented to another tenant").
    - Notifications (approved tenant + rejected competitors) and audit logs (`APPLICATION_APPROVED`, `RENTAL_CREATED`).
    - Two approvals racing for one room: exactly one wins (tested); a unique-key clash is also turned into 409.
    - The month-1 `Payment` is created in the same transaction (`createRentPayment`); paying it activates the rental.

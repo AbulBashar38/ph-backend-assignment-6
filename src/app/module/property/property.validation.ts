@@ -98,6 +98,19 @@ export const PublicPropertiesQueryZodSchema = z.object({
     maxRent: intQuerySchema('maxRent').optional(),
     roomType: z.enum(RoomType, 'Invalid Room Type').optional(),
     occupants: intQuerySchema('occupants').optional(),
+    // Only listings with at least one room free to rent now (true) — room filters imply it
+    availableOnly: z
+        .enum(['true', 'false'], 'availableOnly Must Be true Or false')
+        .transform((value) => value === 'true')
+        .optional(),
+    // Listings with an available room that can be moved into on or before this date
+    availableBy: z.iso
+        .datetime({
+            offset: true,
+            error: 'availableBy Must Be An ISO Date, e.g. 2026-11-01T00:00:00Z',
+        })
+        .transform((value) => new Date(value))
+        .optional(),
 })
 
 // GET /property (management list): owners get their own listings, admins get all

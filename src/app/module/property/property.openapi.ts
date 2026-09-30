@@ -18,7 +18,7 @@ import {
     successResponse,
 } from '../../docs/registry'
 import { IMAGE_UPLOAD_OPTIONS } from '../../lib/multer'
-import { MAX_IMAGES_PER_PROPERTY, PROPERTY_SORTABLE_FIELDS } from './property.constant'
+import { MAX_IMAGES_PER_PROPERTY, PROPERTY_SORT_OPTIONS } from './property.constant'
 import {
     CreatePropertyValidationZodSchema,
     ModeratePropertyValidationZodSchema,
@@ -47,6 +47,10 @@ const RoomSummarySchema = z.object({
     roomType: z.enum(RoomType),
     monthlyRent: z.number().int().meta({ example: 15000 }),
     maxOccupants: z.number().int(),
+    currentOccupants: z
+        .number()
+        .int()
+        .meta({ description: 'People living there now (0 unless OCCUPIED)', example: 0 }),
     status: z.enum(RoomStatus),
     availableFrom: z.iso.datetime().nullable(),
 })
@@ -65,6 +69,18 @@ const propertyCoreFields = {
     publishedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
     rooms: z.array(RoomSummarySchema).meta({ description: 'Live rooms, cheapest first' }),
+    availableRoomCount: z
+        .number()
+        .int()
+        .meta({ description: 'Rooms free to rent now', example: 2 }),
+    minAvailableRent: z.number().int().nullable().meta({
+        description: 'Cheapest available room ("from ৳…"); null = none available',
+        example: 12000,
+    }),
+    earliestAvailableFrom: z.iso.datetime().nullable().meta({
+        description:
+            'Earliest move-in date among available rooms (a past date = right away); null = none available',
+    }),
 }
 
 const PropertySchema = z
@@ -112,7 +128,7 @@ const listFilterParams = {
         description: 'Comma-separated; the property must have ALL of them',
         example: 'WIFI,AC',
     }),
-    ...paginationQueryParams(PROPERTY_SORTABLE_FIELDS),
+    ...paginationQueryParams(PROPERTY_SORT_OPTIONS),
 }
 
 const ownerOrAdmin =
@@ -129,7 +145,11 @@ registry.registerPath({
         'No login needed. Only `PUBLISHED`, non-expired listings whose owner account is active. ' +
         'Owner contact details and moderation notes are never included.\n\n' +
         'Room filters (`minRent`, `maxRent`, `roomType`, `occupants`) match properties that have at least one ' +
-        '**available** room fitting all of them. Each property includes its rooms with rent and status.',
+        '**available** room fitting all of them. Each property includes its rooms with rent and status.\n\n' +
+        '**Sorting** (requirement §6): `sortBy=price` (cheapest available room), `sortBy=availability` (earliest ' +
+        'move-in date), `sortBy=newest` (publish date), or a column name; `sortOrder=asc|desc`. Listings with no ' +
+        'available room always come last when sorting by price or availability.\n\n' +
+        'Example (requirement §23): `?city=Dhaka&area=Mirpur&minRent=10000&maxRent=20000&occupants=2&amenities=WIFI&availableOnly=true&sortBy=price&sortOrder=asc`',
     security: [],
     request: {
         query: z.object({
@@ -141,6 +161,13 @@ registry.registerPath({
                 .string()
                 .optional()
                 .meta({ description: 'Rooms that fit at least this many people' }),
+            availableBy: z.iso.datetime().optional().meta({
+                description: 'An available room can be moved into on or before this date',
+                example: '2026-11-01T00:00:00+06:00',
+            }),
+            availableOnly: z.enum(['true', 'false']).optional().meta({
+                description: '`true` = only listings with at least one room free to rent',
+            }),
         }),
     },
     responses: {
