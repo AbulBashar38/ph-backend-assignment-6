@@ -341,3 +341,12 @@ PROPERTY_RESTORED, ROOM_CREATED, ROOM_UPDATED, ROOM_STATUS_CHANGED, ROOM_ARCHIVE
 APPLICATION_APPROVED, APPLICATION_REJECTED, APPLICATION_CANCELLED, RENTAL_CREATED, RENTAL_STATUS_CHANGED,
 PAYMENT_COMPLETED, PAYMENT_FAILED, PAYMENT_REFUNDED, APPLICATION_EXPIRED, PROPERTY_EXPIRED` (payment and cron
 actions have a null actor), `USER_BLOCKED, USER_ACTIVATED, ADMIN_CREATED`. **Planned:** `VIEWING_STATUS_CHANGED`
+
+**Reading the log:** `GET /audit` (admins, `AuditServices`): filters `action`, `resource`, `resourceId`, `actorId`
+(`system` = null actor), `actorRole`, `from`/`to`; newest first. `actorId` is not a relation, so each page looks up
+its actors in one query (`actor: { id, name, email, role, isDeleted } | null`).
+
+**Platform statistics:** `GET /analytics` (admins, `AnalyticsServices.getPlatformStats`): the §18 totals plus
+`byStatus` breakdowns (every enum value present), paid revenue, and paid revenue per month for the last 6 months
+(Bangladesh time, one raw `date_trunc`-style query). Soft-deleted users, properties and rooms are not counted; the
+counts are read in one transaction so they agree.

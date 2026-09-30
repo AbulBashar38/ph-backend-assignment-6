@@ -7,7 +7,9 @@ import config from './app/config'
 import { openApiDocument } from './app/docs'
 import { globalErrorHandler } from './app/middleware/globalErrorHandler'
 import { notFound } from './app/middleware/notFound'
+import { AnalyticsRoutes } from './app/module/analytics/analytics.route'
 import { ApplicationRoutes } from './app/module/application/application.route'
+import { AuditRoutes } from './app/module/audit/audit.route'
 import { AuthRoutes } from './app/module/auth/auth.route'
 import { NotificationRoutes } from './app/module/notification/notification.route'
 import { PaymentRoutes } from './app/module/payment/payment.route'
@@ -55,6 +57,8 @@ app.use('/api/v1/application', ApplicationRoutes)
 app.use('/api/v1/rental', RentalRoutes)
 app.use('/api/v1/payment', PaymentRoutes)
 app.use('/api/v1/notification', NotificationRoutes)
+app.use('/api/v1/audit', AuditRoutes)
+app.use('/api/v1/analytics', AnalyticsRoutes)
 
 // Basic route
 app.get('/', (_req: Request, res: Response) => {

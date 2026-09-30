@@ -81,9 +81,10 @@ Update the checkboxes as work lands. Work top to bottom. For each item, it helps
 ## Phase 6: Notifications, audit, admin, analytics, cron
 
 - [x] AuditLog model + `createAuditLog(tx, …)` helper
-- [ ] Admin audit-log viewer
+- [x] Admin audit-log viewer (`GET /audit`, filters, actor details, `actorId=system`)
 - [x] Admin: users list/search, block/activate (revokes sessions, cancels open requests), create admin, property moderation
-- [ ] Analytics: admin stats from requirements §18 (example `analytics.service.ts` style), owner stats
+- [x] Analytics: admin stats from requirements §18 (`GET /analytics`: counts, status breakdowns, revenue, 6-month revenue)
+- [ ] Owner dashboard stats (optional)
 - [x] `lib/cron.ts`: generateRentDues, sendRentReminders, expirePendingApplications, expireListings, reconcileStalePayments
 
 ## Phase 7: Polish

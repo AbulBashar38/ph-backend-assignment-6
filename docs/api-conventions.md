@@ -126,8 +126,9 @@ Legend: 🌐 public · T tenant · O owner · A admin/super admin · ✱ any log
                       · GET /(T own, O own rentals, A all) · GET /session/:sessionId · GET /:id · GET /:id/receipt(PDF)
                       (the tenant, the owner, or A). No route sets a payment status.
 /api/v1/notification  (implemented) GET /(✱ own, ?isRead) · GET /unread-count(✱) · PATCH /read-all(✱) · PATCH /:id/read(✱ own)
-/api/v1/analytics     GET /admin-analytics(A) · GET /owner-analytics(O)
-/api/v1/audit         GET /all-audit-logs(A)
+/api/v1/audit         (implemented) GET /(A; ?action&resource&resourceId&actorId (id or `system`)&actorRole&from&to)
+                      · GET /:id(A). Read-only.
+/api/v1/analytics     (implemented) GET /(A; platform statistics, requirement §18)
 ```
 
 **Management lists are scoped by role on one route**, not split into `/my-x` + `/all-x`: e.g. `GET /property`

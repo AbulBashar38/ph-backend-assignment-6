@@ -1,12 +1,13 @@
 import type { Prisma } from '../../generated/prisma/client'
 import type { AuditAction } from '../../generated/prisma/enums'
 import type { RequestUser } from '../middleware/checkAuth'
+import type { AUDIT_RESOURCES } from '../module/audit/audit.constant'
 
 interface IAuditLogInput {
     // null for system actions (cron jobs)
     actor: Pick<RequestUser, 'userId' | 'role'> | null
     action: AuditAction
-    resource: 'User' | 'Property' | 'Room' | 'Application' | 'Rental' | 'Payment'
+    resource: (typeof AUDIT_RESOURCES)[number]
     resourceId: string
     previousData?: unknown
     newData?: unknown
