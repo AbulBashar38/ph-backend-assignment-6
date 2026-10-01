@@ -1,4 +1,5 @@
 import { OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi'
+import config from '../config'
 import { registry } from './registry'
 
 // Each module's *.openapi.ts registers its routes on import
@@ -15,6 +16,8 @@ import '../module/roommate/roommate.openapi'
 import '../module/user/user.openapi'
 import '../module/viewing/viewing.openapi'
 
+const LIVE_URL = 'https://ph-backend-assignment-6.vercel.app'
+
 export const openApiDocument = new OpenApiGeneratorV31(registry.definitions).generateDocument({
     openapi: '3.1.0',
     info: {
@@ -23,5 +26,10 @@ export const openApiDocument = new OpenApiGeneratorV31(registry.definitions).gen
         description:
             'Log in via /auth/login, then click "Authorize" and paste the `accessToken` as the bearer token.',
     },
-    servers: [{ url: '/api/v1' }],
+    // The first entry is Swagger's default, so the docs always call the host they're served from
+    servers: [
+        { url: '/api/v1', description: 'Current host' },
+        { url: `${LIVE_URL}/api/v1`, description: 'Live (Vercel)' },
+        { url: `http://localhost:${config.port ?? 5000}/api/v1`, description: 'Local' },
+    ],
 })
