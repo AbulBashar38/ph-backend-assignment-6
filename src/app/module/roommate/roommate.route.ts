@@ -5,8 +5,10 @@ import { validateRequest } from '../../middleware/validateRequest'
 import { RoommateController } from './roommate.controller'
 import {
     CreateRoommateProfileValidationZodSchema,
+    CreateRoommateRequestValidationZodSchema,
     UpdateRoommateProfileStatusValidationZodSchema,
     UpdateRoommateProfileValidationZodSchema,
+    UpdateRoommateRequestStatusValidationZodSchema,
 } from './roommate.validation'
 
 const router = Router()
@@ -36,5 +38,22 @@ router.patch(
 router.get('/matches', auth(Role.TENANT), RoommateController.getMatches)
 // After /profile/me, so "me" is never treated as an id
 router.get('/profile/:id', auth(Role.TENANT), RoommateController.getProfileById)
+
+// Connection requests between matched tenants (who may act is checked in the service)
+router.post(
+    '/requests',
+    auth(Role.TENANT),
+    validateRequest(CreateRoommateRequestValidationZodSchema),
+    RoommateController.sendRoommateRequest,
+)
+router.get('/requests', auth(Role.TENANT), RoommateController.getRoommateRequests)
+router.get('/requests/:id', auth(Role.TENANT), RoommateController.getRoommateRequestById)
+router.patch(
+    '/requests/:id/status',
+    auth(Role.TENANT),
+    validateRequest(UpdateRoommateRequestStatusValidationZodSchema),
+    RoommateController.updateRoommateRequestStatus,
+)
+router.get('/connections', auth(Role.TENANT), RoommateController.getConnections)
 
 export const RoommateRoutes = router

@@ -91,6 +91,10 @@ everything an `ADMIN` can, and can also create other admins.
 ### 🤝 Roommate Matching (Tenant)
 - Create and manage a roommate profile (budget, location, lifestyle, smoking, pets, etc.)
 - Get a list of **compatible roommates with a 0–100 compatibility score** and a per-factor breakdown
+- **Send a roommate request** to a match with a short message; the other tenant gets a notification and an email
+- **Contact details stay private until both agree**: when the request is accepted, both tenants get each other's
+  email and phone (in the app and by email)
+- Anti-spam: one open request per pair, at most 20 requests a day, and a 30-day wait after being declined
 
 ### 📅 Viewings
 - Tenants request a viewing; owners accept, reject or reschedule; both sides get notified
@@ -153,7 +157,7 @@ Every job is idempotent and protected by a Redis lock, so only one server instan
 | User | `/user` | list users, create admin, get/update profile, profile image, change status, delete |
 | Property | `/property` | public list & details, CRUD, status (publish / take offline / suspend), images |
 | Room | `/room` | public available rooms & details, CRUD, status, images |
-| Roommate | `/roommate` | create/update profile, profile status, matches, view profile |
+| Roommate | `/roommate` | create/update profile, profile status, matches, view profile, send / accept / decline / cancel requests, connections |
 | Viewing | `/viewing` | request, update status, list, details |
 | Application | `/application` | apply, update status, list, details |
 | Rental | `/rental` | list, details, update status |

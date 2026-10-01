@@ -1,5 +1,12 @@
 import z from 'zod'
-import { Gender, LifestyleTag, Preference, SleepSchedule } from '../../../generated/prisma/enums'
+import {
+    Gender,
+    LifestyleTag,
+    Preference,
+    RoommateRequestStatus,
+    SleepSchedule,
+} from '../../../generated/prisma/enums'
+import { ROOMMATE_REQUEST_RESPONSES, ROOMMATE_REQUEST_TYPES } from './roommate.constant'
 
 const startOfToday = () => {
     const today = new Date()
@@ -107,4 +114,38 @@ export const RoommateMatchesQueryZodSchema = z.object({
         .transform(Number)
         .refine((value) => value <= 100, 'minScore Must Be A Whole Number From 0 To 100')
         .optional(),
+})
+
+// ---------- connection requests ----------
+
+export const CreateRoommateRequestValidationZodSchema = z
+    .object({
+        // The roommate profile ID from GET /roommate/matches or /roommate/profile/:id
+        receiverProfileId: z
+            .string('Roommate Profile ID Is Required')
+            .trim()
+            .min(1, 'Roommate Profile ID Is Required'),
+        message: z
+            .string()
+            .trim()
+            .min(1, 'Message Must Not Be Empty')
+            .max(500, 'Message Must Be At Most 500 Characters Long')
+            .optional(),
+    })
+    .strict()
+
+// ACCEPTED / DECLINED: the receiver. CANCELLED: the sender.
+export const UpdateRoommateRequestStatusValidationZodSchema = z
+    .object({
+        status: z.enum(
+            ROOMMATE_REQUEST_RESPONSES,
+            'Status Must Be ACCEPTED, DECLINED Or CANCELLED',
+        ),
+    })
+    .strict()
+
+// GET /roommate/requests filters (no type = both sent and received)
+export const RoommateRequestsQueryZodSchema = z.object({
+    type: z.enum(ROOMMATE_REQUEST_TYPES, 'type Must Be received Or sent').optional(),
+    status: z.enum(RoommateRequestStatus, 'Invalid Roommate Request Status').optional(),
 })

@@ -6,6 +6,7 @@ export const AUDIT_RESOURCES = [
     'Application',
     'Rental',
     'Payment',
+    'RoommateRequest',
 ] as const
 
 // Newest first by default; the log only grows, so creation time is the one useful order

@@ -140,6 +140,10 @@ enum NotificationType {
   // Admin moderation of a listing
   LISTING_SUSPENDED
   LISTING_RESTORED
+  // Roommate connection requests
+  ROOMMATE_REQUEST_RECEIVED
+  ROOMMATE_REQUEST_ACCEPTED
+  ROOMMATE_REQUEST_DECLINED
   ACCOUNT_STATUS_CHANGED
   ROOM_AVAILABILITY_CHANGED
 }
@@ -191,6 +195,18 @@ enum AuditAction {
   USER_BLOCKED
   USER_ACTIVATED
   ADMIN_CREATED
+  ROOMMATE_REQUEST_SENT
+  ROOMMATE_REQUEST_ACCEPTED
+  ROOMMATE_REQUEST_DECLINED
+  ROOMMATE_REQUEST_CANCELLED
+}
+
+// PENDING → ACCEPTED | DECLINED (the receiver) | CANCELLED (the sender)
+enum RoommateRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
 }
 
 // PENDING (due; may have an open Stripe Checkout Session) → PAID (only the verified webhook).

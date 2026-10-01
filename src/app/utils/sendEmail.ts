@@ -40,6 +40,19 @@ interface IEmailTemplateData {
         roomName: string
         period: string
     }
+    'roommate-request': {
+        name: string
+        senderName: string
+        senderOccupation: string | null
+        compatibility: number
+        message: string | null
+    }
+    'roommate-connected': {
+        name: string
+        otherName: string
+        otherEmail: string
+        otherPhone: string | null
+    }
 }
 
 export type TEmailTemplate = keyof IEmailTemplateData

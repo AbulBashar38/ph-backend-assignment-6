@@ -79,9 +79,86 @@ const getProfileById = catchAsync(async (req: Request, res: Response) => {
     })
 })
 
+// ---------- connection requests ----------
+
+const sendRoommateRequest = catchAsync(async (req: Request, res: Response) => {
+    const result = await RoommateServices.sendRoommateRequest(req.user as RequestUser, req.body)
+
+    sendResponse(res, {
+        statusCode: httpStatus.CREATED,
+        success: true,
+        message: 'Roommate Request Sent Successfully',
+        data: result,
+    })
+})
+
+const updateRoommateRequestStatus = catchAsync(async (req: Request, res: Response) => {
+    const result = await RoommateServices.updateRoommateRequestStatus(
+        req.user as RequestUser,
+        req.params.id as string,
+        req.body,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Roommate Request Status Updated Successfully',
+        data: result,
+    })
+})
+
+const getRoommateRequests = catchAsync(async (req: Request, res: Response) => {
+    const { data, meta } = await RoommateServices.getRoommateRequests(
+        req.user as RequestUser,
+        req.query as IQuery,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Roommate Requests Retrieved Successfully',
+        data,
+        meta,
+    })
+})
+
+const getRoommateRequestById = catchAsync(async (req: Request, res: Response) => {
+    const result = await RoommateServices.getRoommateRequestById(
+        req.user as RequestUser,
+        req.params.id as string,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Roommate Request Retrieved Successfully',
+        data: result,
+    })
+})
+
+const getConnections = catchAsync(async (req: Request, res: Response) => {
+    const { data, meta } = await RoommateServices.getConnections(
+        req.user as RequestUser,
+        req.query as IQuery,
+    )
+
+    sendResponse(res, {
+        statusCode: httpStatus.OK,
+        success: true,
+        message: 'Roommate Connections Retrieved Successfully',
+        data,
+        meta,
+    })
+})
+
 export const RoommateController = {
     getMatches,
     getProfileById,
+    sendRoommateRequest,
+    updateRoommateRequestStatus,
+    getRoommateRequests,
+    getRoommateRequestById,
+    getConnections,
     createMyProfile,
     getMyProfile,
     updateMyProfile,

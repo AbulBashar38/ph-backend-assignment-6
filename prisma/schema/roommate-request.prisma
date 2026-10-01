@@ -1,0 +1,24 @@
+// A tenant asking a matched tenant to connect. Contact details (email, phone) are shared with both only once
+// it's ACCEPTED. Never deleted: it only changes status.
+model RoommateRequest {
+  id String @id @default(uuid(7))
+
+  message String?
+
+  status      RoommateRequestStatus @default(PENDING)
+  // When it was accepted, declined or cancelled
+  respondedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  senderId   String
+  sender     User   @relation("RoommateRequestSender", fields: [senderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  receiverId String
+  receiver   User   @relation("RoommateRequestReceiver", fields: [receiverId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([senderId, status], name: "idx_roommateRequest_sender_status")
+  @@index([receiverId, status], name: "idx_roommateRequest_receiver_status")
+  @@index([senderId, createdAt], name: "idx_roommateRequest_sender_createdAt")
+  @@map("roommate_requests")
+}

@@ -1,0 +1,23 @@
+<%- include('partials/layout-start', {
+  title: 'New roommate request',
+  preheader: `${senderName} (${compatibility}% match) wants to connect with you as a roommate.`,
+}) %>
+<%- include('partials/heading', { text: 'You have a roommate request' }) %>
+<p style="margin: 0 0 12px 0;">Hi <%= name %>,</p>
+<p style="margin: 0 0 20px 0;">
+  <strong style="color: #0f172a;"><%= senderName %></strong><%= senderOccupation ? `, ${senderOccupation},` : '' %>
+  found your roommate profile and would like to connect. You're a
+  <strong style="color: #0f766e;"><%= compatibility %>% match</strong>.
+</p>
+
+<% if (message) { -%>
+<%- include('partials/callout', { title: `Message from ${senderName}`, text: message }) %>
+<% } -%>
+
+<%- include('partials/button', { href: `${frontendUrl}/dashboard/roommate/requests`, label: 'View request' }) %>
+
+<%- include('partials/callout', {
+  title: 'Your contact details are safe',
+  text: 'Your email and phone number are only shared if you accept. If you decline, they never see them.',
+}) %>
+<%- include('partials/layout-end') %>

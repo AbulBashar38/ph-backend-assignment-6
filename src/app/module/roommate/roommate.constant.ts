@@ -13,3 +13,19 @@ export const MATCH_WEIGHTS = {
 export const MAX_MATCH_CANDIDATES = 500
 
 export const MATCH_SORTABLE_FIELDS = ['score'] as const
+
+// ---------- connection requests ----------
+
+// Anti-spam: requests one tenant can send in any rolling 24 hours
+export const MAX_ROOMMATE_REQUESTS_PER_DAY = 20
+
+// After a decline, the same sender can't ask the same person again for this long
+export const DECLINED_REQUEST_COOLDOWN_DAYS = 30
+
+export const ROOMMATE_REQUEST_SORTABLE_FIELDS = ['createdAt', 'respondedAt'] as const
+
+// Which side of the request the caller is on (GET /roommate/requests?type=…)
+export const ROOMMATE_REQUEST_TYPES = ['received', 'sent'] as const
+
+// Statuses PATCH /roommate/requests/:id/status accepts (PENDING is only the starting status)
+export const ROOMMATE_REQUEST_RESPONSES = ['ACCEPTED', 'DECLINED', 'CANCELLED'] as const
