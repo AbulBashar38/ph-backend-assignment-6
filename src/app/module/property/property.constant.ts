@@ -38,3 +38,7 @@ export const NULLS_LAST_SORT_FIELDS: readonly string[] = [
 ]
 
 export const MAX_IMAGES_PER_PROPERTY = 20
+
+// Statuses PATCH /property/:id/status accepts. DRAFT is only the starting status, ARCHIVED only comes from DELETE.
+// SUSPENDED is for admins.
+export const MANUAL_PROPERTY_STATUSES = ['PUBLISHED', 'INACTIVE', 'SUSPENDED'] as const

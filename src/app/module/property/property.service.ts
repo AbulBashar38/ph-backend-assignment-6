@@ -32,8 +32,8 @@ import {
 } from './property.constant'
 import type {
     ICreatePropertyPayload,
-    IModeratePropertyPayload,
     IUpdatePropertyPayload,
+    IUpdatePropertyStatusPayload,
 } from './property.interface'
 import { PropertiesQueryZodSchema, PublicPropertiesQueryZodSchema } from './property.validation'
 
@@ -262,7 +262,7 @@ const createProperty = async (actor: RequestUser, payload: ICreatePropertyPayloa
  * Management list (login required). Same response shape for everyone; the role decides the scope:
  * - OWNER → only their own listings, in every status (another owner's ownerId → 403)
  * - ADMIN / SUPER_ADMIN → every listing (ownerId is an optional filter)
- * Archived (soft-deleted) listings only appear with status=ARCHIVED or isDeleted=true.
+ * Deleted (archived) listings are never returned, to anyone.
  */
 const getProperties = async (actor: RequestUser, query: IQuery) => {
     const filters = PropertiesQueryZodSchema.parse(query)
@@ -276,11 +276,9 @@ const getProperties = async (actor: RequestUser, query: IQuery) => {
         ownerId = actor.userId
     }
 
-    const showDeleted = filters.isDeleted ?? filters.status === PropertyStatus.ARCHIVED
-
     const where: PropertyWhereInput = {
         AND: [
-            { isDeleted: showDeleted },
+            { isDeleted: false },
             ...(filters.status ? [{ status: filters.status }] : []),
             ...(ownerId ? [{ ownerId }] : []),
             ...buildListConditions(filters),
@@ -397,21 +395,51 @@ const updateProperty = async (
 
 // ---------- status changes (conditional updates: safe against double clicks and races) ----------
 
-const publishProperty = async (actor: RequestUser, propertyId: string) => {
-    const property = await findManageableProperty(actor, propertyId)
+type ManageableProperty = Awaited<ReturnType<typeof findManageableProperty>>
 
+const suspendedByAdminError = (property: ManageableProperty) =>
+    new AppError(
+        httpStatus.FORBIDDEN,
+        `This Property Was Suspended By An Admin${property.moderationNote ? `: ${property.moderationNote}` : ''}`,
+    )
+
+// Only admins suspend or lift a suspension, so the owner is told about every such decision
+const notifyOwnerOfModeration = (
+    tx: Prisma.TransactionClient,
+    property: ManageableProperty,
+    nextStatus: PropertyStatus,
+    reason?: string | null,
+) =>
+    createNotifications(tx, [
+        nextStatus === PropertyStatus.SUSPENDED
+            ? {
+                  userId: property.ownerId,
+                  type: NotificationType.LISTING_SUSPENDED,
+                  title: 'Listing Suspended',
+                  message: `An admin suspended your listing "${property.title}"${reason ? `: ${reason}` : ''}. It is hidden from tenants until an admin lifts the suspension.`,
+                  data: { propertyId: property.id },
+              }
+            : {
+                  userId: property.ownerId,
+                  type: NotificationType.LISTING_RESTORED,
+                  title: 'Listing Restored',
+                  message: `An admin lifted the suspension on your listing "${property.title}". Its status is now ${nextStatus}.`,
+                  data: { propertyId: property.id },
+              },
+    ])
+
+// → PUBLISHED. An admin publishing a suspended listing also lifts the suspension.
+const publishProperty = async (actor: RequestUser, property: ManageableProperty) => {
     if (property.status === PropertyStatus.PUBLISHED) {
         throw new AppError(httpStatus.CONFLICT, 'Property Is Already Published')
     }
 
     const isAdminActor = isAdminRole(actor.role)
+    const isRestore = property.status === PropertyStatus.SUSPENDED
 
-    // Owners can't bring back a listing an admin suspended; admins can (it clears the suspension)
-    if (property.status === PropertyStatus.SUSPENDED && !isAdminActor) {
-        throw new AppError(
-            httpStatus.FORBIDDEN,
-            `This Property Was Suspended By An Admin${property.moderationNote ? `: ${property.moderationNote}` : ''}`,
-        )
+    // Owners can't bring back a listing an admin suspended
+    if (isRestore && !isAdminActor) {
+        throw suspendedByAdminError(property)
     }
 
     const publishableStatuses: PropertyStatus[] = isAdminActor
@@ -447,7 +475,7 @@ const publishProperty = async (actor: RequestUser, propertyId: string) => {
             data: {
                 status: PropertyStatus.PUBLISHED,
                 publishedAt: new Date(),
-                ...(property.status === PropertyStatus.SUSPENDED && { moderationNote: null }),
+                ...(isRestore && { moderationNote: null, moderatedAt: new Date() }),
             },
         })
 
@@ -466,25 +494,39 @@ const publishProperty = async (actor: RequestUser, propertyId: string) => {
             previousData: { status: property.status },
             newData: { status: PropertyStatus.PUBLISHED },
         })
-    })
 
-    return getPropertyDetails(property.id)
+        if (isRestore) {
+            await notifyOwnerOfModeration(tx, property, PropertyStatus.PUBLISHED)
+        }
+    })
 }
 
-const disableProperty = async (actor: RequestUser, propertyId: string) => {
-    const property = await findManageableProperty(actor, propertyId)
+// → INACTIVE: the owner takes a published listing offline, or an admin lifts a suspension (the owner re-publishes)
+const deactivateProperty = async (actor: RequestUser, property: ManageableProperty) => {
+    if (property.status === PropertyStatus.INACTIVE) {
+        throw new AppError(httpStatus.CONFLICT, 'Property Is Already Inactive')
+    }
 
-    if (property.status !== PropertyStatus.PUBLISHED) {
+    const isRestore = property.status === PropertyStatus.SUSPENDED
+
+    if (isRestore && !isAdminRole(actor.role)) {
+        throw suspendedByAdminError(property)
+    }
+
+    if (!isRestore && property.status !== PropertyStatus.PUBLISHED) {
         throw new AppError(
             httpStatus.CONFLICT,
-            `Only Published Properties Can Be Disabled (Current Status: ${property.status})`,
+            `Only Published Properties Can Be Set To INACTIVE (Current Status: ${property.status})`,
         )
     }
 
     await prisma.$transaction(async (tx) => {
         const { count } = await tx.property.updateMany({
-            where: { id: property.id, isDeleted: false, status: PropertyStatus.PUBLISHED },
-            data: { status: PropertyStatus.INACTIVE },
+            where: { id: property.id, isDeleted: false, status: property.status },
+            data: {
+                status: PropertyStatus.INACTIVE,
+                ...(isRestore && { moderationNote: null, moderatedAt: new Date() }),
+            },
         })
 
         if (count === 0) {
@@ -496,18 +538,90 @@ const disableProperty = async (actor: RequestUser, propertyId: string) => {
 
         await createAuditLog(tx, {
             actor,
-            action: AuditAction.PROPERTY_DISABLED,
+            action: isRestore ? AuditAction.PROPERTY_RESTORED : AuditAction.PROPERTY_DISABLED,
             resource: RESOURCE,
             resourceId: property.id,
-            previousData: { status: PropertyStatus.PUBLISHED },
+            previousData: { status: property.status },
             newData: { status: PropertyStatus.INACTIVE },
         })
+
+        if (isRestore) {
+            await notifyOwnerOfModeration(tx, property, PropertyStatus.INACTIVE)
+        }
     })
+}
+
+// → SUSPENDED (admins only): hidden from search, and the owner can't publish it until an admin lifts it
+const suspendProperty = async (
+    actor: RequestUser,
+    property: ManageableProperty,
+    reason: string | null,
+) => {
+    if (property.status === PropertyStatus.SUSPENDED) {
+        throw new AppError(httpStatus.CONFLICT, 'Property Is Already Suspended')
+    }
+
+    await prisma.$transaction(async (tx) => {
+        const { count } = await tx.property.updateMany({
+            where: { id: property.id, isDeleted: false, status: property.status },
+            data: {
+                status: PropertyStatus.SUSPENDED,
+                moderationNote: reason,
+                moderatedAt: new Date(),
+            },
+        })
+
+        if (count === 0) {
+            throw new AppError(
+                httpStatus.CONFLICT,
+                'Property Status Changed. Please Refresh And Try Again',
+            )
+        }
+
+        await createAuditLog(tx, {
+            actor,
+            action: AuditAction.PROPERTY_SUSPENDED,
+            resource: RESOURCE,
+            resourceId: property.id,
+            previousData: { status: property.status },
+            newData: { status: PropertyStatus.SUSPENDED, reason },
+        })
+
+        await notifyOwnerOfModeration(tx, property, PropertyStatus.SUSPENDED, reason)
+    })
+}
+
+/**
+ * One entry point for every manual status change. DRAFT is only the starting status, and ARCHIVED only comes
+ * from DELETE, so neither can be requested here.
+ */
+const updatePropertyStatus = async (
+    actor: RequestUser,
+    propertyId: string,
+    payload: IUpdatePropertyStatusPayload,
+) => {
+    // Before loading the property, so an owner learns nothing about listings they can't suspend anyway
+    if (payload.status === PropertyStatus.SUSPENDED && !isAdminRole(actor.role)) {
+        throw new AppError(httpStatus.FORBIDDEN, 'Only Admins Can Suspend A Property')
+    }
+
+    const property = await findManageableProperty(actor, propertyId)
+
+    switch (payload.status) {
+        case PropertyStatus.PUBLISHED:
+            await publishProperty(actor, property)
+            break
+        case PropertyStatus.INACTIVE:
+            await deactivateProperty(actor, property)
+            break
+        case PropertyStatus.SUSPENDED:
+            await suspendProperty(actor, property, payload.reason ?? null)
+            break
+    }
 
     return getPropertyDetails(property.id)
 }
 
-// Soft delete: "remove from active listings" (requirement §4.2). History and images are kept.
 const archiveProperty = async (actor: RequestUser, propertyId: string) => {
     const property = await findManageableProperty(actor, propertyId)
 
@@ -570,68 +684,6 @@ const archiveProperty = async (actor: RequestUser, propertyId: string) => {
 }
 
 // ADMIN / SUPER_ADMIN
-const moderateProperty = async (
-    actor: RequestUser,
-    propertyId: string,
-    payload: IModeratePropertyPayload,
-) => {
-    const property = await prisma.property.findFirst({
-        where: { id: propertyId, isDeleted: false },
-    })
-
-    if (!property) {
-        throw new AppError(httpStatus.NOT_FOUND, 'Property Not Found')
-    }
-
-    const isSuspend = payload.action === 'SUSPEND'
-
-    if (isSuspend && property.status === PropertyStatus.SUSPENDED) {
-        throw new AppError(httpStatus.CONFLICT, 'Property Is Already Suspended')
-    }
-
-    if (!isSuspend && property.status !== PropertyStatus.SUSPENDED) {
-        throw new AppError(httpStatus.CONFLICT, 'Only Suspended Properties Can Be Restored')
-    }
-
-    // Restored listings go to INACTIVE: the owner reviews and re-publishes them
-    const nextStatus = isSuspend ? PropertyStatus.SUSPENDED : PropertyStatus.INACTIVE
-
-    await prisma.$transaction(async (tx) => {
-        const { count } = await tx.property.updateMany({
-            where: {
-                id: property.id,
-                isDeleted: false,
-                status: isSuspend ? { not: PropertyStatus.SUSPENDED } : PropertyStatus.SUSPENDED,
-            },
-            data: {
-                status: nextStatus,
-                moderationNote: isSuspend ? (payload.reason ?? null) : null,
-                moderatedAt: new Date(),
-            },
-        })
-
-        if (count === 0) {
-            throw new AppError(
-                httpStatus.CONFLICT,
-                'Property Status Changed. Please Refresh And Try Again',
-            )
-        }
-
-        await createAuditLog(tx, {
-            actor,
-            action: isSuspend ? AuditAction.PROPERTY_SUSPENDED : AuditAction.PROPERTY_RESTORED,
-            resource: RESOURCE,
-            resourceId: property.id,
-            previousData: { status: property.status },
-            newData: { status: nextStatus, reason: payload.reason ?? null },
-        })
-    })
-
-    // TODO(notification module): notify the owner about the suspension / restore
-
-    return getPropertyDetails(property.id)
-}
-
 // ---------- images ----------
 
 const addImages = async (
@@ -696,7 +748,7 @@ const removeImage = async (actor: RequestUser, propertyId: string, imageId: stri
     if (property.status === PropertyStatus.PUBLISHED && property.images.length === 1) {
         throw new AppError(
             httpStatus.CONFLICT,
-            'A Published Property Needs At Least One Image. Add Another Image Or Disable The Property First',
+            'A Published Property Needs At Least One Image. Add Another Image Or Set The Property INACTIVE First',
         )
     }
 
@@ -789,10 +841,8 @@ export const PropertyServices = {
     getPublicPropertyById,
     getPropertyById,
     updateProperty,
-    publishProperty,
-    disableProperty,
+    updatePropertyStatus,
     archiveProperty,
-    moderateProperty,
     addImages,
     removeImage,
     expireListings,

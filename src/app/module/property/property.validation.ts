@@ -1,5 +1,6 @@
 import z from 'zod'
 import { Amenity, PropertyStatus, PropertyType, RoomType } from '../../../generated/prisma/enums'
+import { MANUAL_PROPERTY_STATUSES } from './property.constant'
 
 const trimmedString = (field: string, min: number, max: number) =>
     z
@@ -32,7 +33,7 @@ const propertyFields = {
     expiresAt: futureDateSchema.nullable(),
 }
 
-// Status is never set directly: use publish / disable / delete / moderate
+// Status is never set here: use PATCH /:id/status or DELETE
 export const CreatePropertyValidationZodSchema = z
     .object({
         ...propertyFields,
@@ -57,12 +58,16 @@ export const UpdatePropertyValidationZodSchema = z
         message: 'Provide At Least One Field To Update',
     })
 
-export const ModeratePropertyValidationZodSchema = z
+export const UpdatePropertyStatusValidationZodSchema = z
     .object({
-        action: z.enum(['SUSPEND', 'RESTORE'], 'Action Must Be SUSPEND Or RESTORE'),
+        status: z.enum(
+            MANUAL_PROPERTY_STATUSES,
+            'Status Must Be PUBLISHED, INACTIVE Or SUSPENDED (Delete A Property To Archive It)',
+        ),
+        // Shown to the owner; required when suspending
         reason: z.string().trim().max(500, 'Reason Must Be At Most 500 Characters Long').optional(),
     })
-    .refine((data) => data.action !== 'SUSPEND' || (data.reason?.length ?? 0) >= 5, {
+    .refine((data) => data.status !== 'SUSPENDED' || (data.reason?.length ?? 0) >= 5, {
         message: 'A Reason Of At Least 5 Characters Is Required To Suspend A Property',
         path: ['reason'],
     })
@@ -116,10 +121,10 @@ export const PublicPropertiesQueryZodSchema = z.object({
 // GET /property (management list): owners get their own listings, admins get all
 export const PropertiesQueryZodSchema = z.object({
     ...baseListFilters,
-    status: z.enum(PropertyStatus, 'Invalid Property Status').optional(),
-    ownerId: z.string().trim().optional(),
-    isDeleted: z
-        .enum(['true', 'false'], 'isDeleted Must Be true Or false')
-        .transform((value) => value === 'true')
+    // ARCHIVED means deleted, and deleted listings are never listed
+    status: z
+        .enum(PropertyStatus, 'Invalid Property Status')
+        .exclude([PropertyStatus.ARCHIVED], 'Invalid Property Status')
         .optional(),
+    ownerId: z.string().trim().optional(),
 })

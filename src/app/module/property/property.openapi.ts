@@ -21,7 +21,7 @@ import { IMAGE_UPLOAD_OPTIONS } from '../../lib/multer'
 import { MAX_IMAGES_PER_PROPERTY, PROPERTY_SORT_OPTIONS } from './property.constant'
 import {
     CreatePropertyValidationZodSchema,
-    ModeratePropertyValidationZodSchema,
+    UpdatePropertyStatusValidationZodSchema,
     UpdatePropertyValidationZodSchema,
 } from './property.validation'
 
@@ -201,7 +201,7 @@ registry.registerPath({
         '- **OWNER**: created for yourself (`ownerId` may be omitted, or must be your own → else 403).\n' +
         '- **ADMIN / SUPER_ADMIN**: `ownerId` (the **user ID** of a user with role OWNER) is **required** (missing → 400, not an owner → 404).\n\n' +
         'Creates the listing as `DRAFT`. Then add photos with `POST /property/{id}/images` and publish it with ' +
-        "`PATCH /property/{id}/publish`. `status` can't be set here.\n\n" +
+        '`PATCH /property/{id}/status` (`{ "status": "PUBLISHED" }`). `status` can\'t be set here.\n\n' +
         '- `expiresAt` (optional, future ISO date): after it, the listing is taken offline automatically.\n' +
         '- `amenities`: any of ' +
         Object.values(Amenity)
@@ -256,7 +256,7 @@ registry.registerPath({
         "- **OWNER** → only your own property (someone else's → 403).\n" +
         '- **ADMIN / SUPER_ADMIN** → any property, e.g. to correct details. The audit log records the admin as the editor.\n\n' +
         'Send only the fields to change. `null` clears `latitude`, `longitude` or `expiresAt`; `amenities` replaces the ' +
-        "whole list. A published listing stays published. Status can't be changed here (use publish / disable / moderate). " +
+        "whole list. A published listing stays published. Status can't be changed here (use `PATCH /property/{id}/status`). " +
         'Archived → 404.',
     security: authSecurity,
     request: {
@@ -275,33 +275,33 @@ registry.registerPath({
 
 registry.registerPath({
     method: 'patch',
-    path: '/property/{id}/publish',
+    path: '/property/{id}/status',
     tags: [TAG],
-    summary: 'Publish a property (owner of it, ADMIN, SUPER_ADMIN)',
+    summary:
+        'Change property status: publish, take offline, suspend (owner of it, ADMIN, SUPER_ADMIN)',
     description:
         `${ownerOrAdmin}\n\n` +
-        '- From `DRAFT` or `INACTIVE` → `PUBLISHED` (visible in public search).\n' +
-        '- Needs at least one image (400), at least one room (400), and an `expiresAt` in the future if set (400).\n' +
-        '- Already published → 409. Suspended: owner → 403 with the reason; an admin may publish it (clears the suspension).',
+        '- `PUBLISHED`: from `DRAFT` or `INACTIVE` (visible in public search). Needs at least one image (400), at least ' +
+        'one room (400), and an `expiresAt` in the future if set (400).\n' +
+        '- `INACTIVE`: from `PUBLISHED` (hidden from search; publish again any time).\n' +
+        '- `SUSPENDED`: **admins only** (owner → 403), needs a `reason` (min 5 characters) shown to the owner. ' +
+        'Hidden from search; the owner gets a notification.\n' +
+        '- **Lifting a suspension** (admins only): set `INACTIVE` (the owner reviews and re-publishes) or `PUBLISHED`. ' +
+        'The owner is notified. An owner trying to change a suspended listing → 403 with the reason.\n' +
+        "- `DRAFT` and `ARCHIVED` can't be requested (400): drafts are only the starting status, and `DELETE` archives.\n" +
+        '- Same status as now, or a change not allowed from the current status → 409.',
     security: authSecurity,
-    request: { params: idParams },
-    responses: {
-        200: successResponse('Property Published Successfully', PropertySchema),
-        ...errorResponses(400, 401, 403, 404, 409),
+    request: {
+        params: idParams,
+        body: jsonBody(
+            UpdatePropertyStatusValidationZodSchema.meta({
+                example: { status: 'SUSPENDED', reason: 'Photos do not match the listed property' },
+            }),
+        ),
     },
-})
-
-registry.registerPath({
-    method: 'patch',
-    path: '/property/{id}/disable',
-    tags: [TAG],
-    summary: 'Take a published property offline (owner of it, ADMIN, SUPER_ADMIN)',
-    description: `${ownerOrAdmin} \`PUBLISHED\` → \`INACTIVE\` (hidden from search; publish again any time). Other statuses → 409.`,
-    security: authSecurity,
-    request: { params: idParams },
     responses: {
-        200: successResponse('Property Disabled Successfully', PropertySchema),
-        ...errorResponses(401, 403, 404, 409),
+        200: successResponse('Property Status Updated Successfully', PropertySchema),
+        ...errorResponses(400, 401, 403, 404, 409),
     },
 })
 
@@ -333,7 +333,7 @@ registry.registerPath({
     summary: 'Remove one photo (owner of it, ADMIN, SUPER_ADMIN)',
     description:
         `${ownerOrAdmin} Deletes the file from Cloudinary. The last image of a **published** property can't be removed (409): ` +
-        'add another first or disable the listing.',
+        'add another first or set the listing `INACTIVE`.',
     security: authSecurity,
     request: { params: idParams.extend({ imageId: z.string() }) },
     responses: {
@@ -349,7 +349,7 @@ registry.registerPath({
     summary: 'Remove a property from listings: soft delete (owner of it, ADMIN, SUPER_ADMIN)',
     description:
         `${ownerOrAdmin} Sets status \`ARCHIVED\` + \`isDeleted\`. Nothing is erased: the listing, its images and its ` +
-        'history are kept (and it stays visible in `GET /property?status=ARCHIVED`), but it can no longer be edited or published. ' +
+        'history are kept in the database, but it no longer appears in any list and can no longer be edited or published. ' +
         'Its rooms are removed with it. Refused (409) while any room is `RESERVED` or `OCCUPIED`.',
     security: authSecurity,
     request: { params: idParams },
@@ -370,47 +370,21 @@ registry.registerPath({
         'Full details in every status (drafts, suspended with the reason…). The role decides the scope:\n' +
         "- **OWNER** → only your own listings. Sending another owner's `ownerId` → 403.\n" +
         '- **ADMIN / SUPER_ADMIN** → every listing; `ownerId` filters by owner.\n\n' +
-        'Archived (soft-deleted) listings only appear with `status=ARCHIVED` or `isDeleted=true`. ' +
+        'Deleted listings are never returned, to anyone. ' +
         'For the public search, use `GET /property/public/all-properties`.',
     security: authSecurity,
     request: {
         query: z.object({
             ...listFilterParams,
-            status: z.enum(PropertyStatus).optional(),
+            status: z.enum(PropertyStatus).exclude([PropertyStatus.ARCHIVED]).optional(),
             ownerId: z
                 .string()
                 .optional()
                 .meta({ description: 'Owner user ID (admins; owners may only pass their own)' }),
-            isDeleted: z.enum(['true', 'false']).optional(),
         }),
     },
     responses: {
         200: paginatedResponse('Properties Retrieved Successfully', PropertySchema),
         ...errorResponses(400, 401, 403),
-    },
-})
-
-registry.registerPath({
-    method: 'patch',
-    path: '/property/{id}/moderate',
-    tags: [TAG],
-    summary: 'Suspend or restore a property (ADMIN, SUPER_ADMIN)',
-    description:
-        '- `SUSPEND` (needs a `reason`, min 5 characters): any status → `SUSPENDED`. Hidden from search; the owner sees ' +
-        "the reason and can't publish it.\n" +
-        '- `RESTORE`: `SUSPENDED` → `INACTIVE`. The owner reviews it and publishes again.\n' +
-        'Archived → 404. Wrong current status → 409.',
-    security: authSecurity,
-    request: {
-        params: idParams,
-        body: jsonBody(
-            ModeratePropertyValidationZodSchema.meta({
-                example: { action: 'SUSPEND', reason: 'Photos do not match the listed property' },
-            }),
-        ),
-    },
-    responses: {
-        200: successResponse('Property Suspended Successfully', PropertySchema),
-        ...errorResponses(400, 401, 403, 404, 409),
     },
 })

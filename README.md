@@ -151,7 +151,7 @@ Every job is idempotent and protected by a Redis lock, so only one server instan
 |---|---|---|
 | Auth | `/auth` | register, verify-email, resend-otp, login, google, refresh-token, logout, me, change/forgot/reset-password |
 | User | `/user` | list users, create admin, get/update profile, profile image, change status, delete |
-| Property | `/property` | public list & details, CRUD, publish, disable, moderate, images |
+| Property | `/property` | public list & details, CRUD, status (publish / take offline / suspend), images |
 | Room | `/room` | public available rooms & details, CRUD, status, images |
 | Roommate | `/roommate` | create/update profile, profile status, matches, view profile |
 | Viewing | `/viewing` | request, update status, list, details |

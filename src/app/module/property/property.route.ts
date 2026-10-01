@@ -7,7 +7,7 @@ import { ADMIN_ROLES } from '../../utils/roles'
 import { PropertyController } from './property.controller'
 import {
     CreatePropertyValidationZodSchema,
-    ModeratePropertyValidationZodSchema,
+    UpdatePropertyStatusValidationZodSchema,
     UpdatePropertyValidationZodSchema,
 } from './property.validation'
 
@@ -28,14 +28,6 @@ router.post(
 // Owner (own listings) or admin (all listings): the scope is decided in the service
 router.get('/', auth(Role.OWNER, ...ADMIN_ROLES), PropertyController.getProperties)
 
-// Admin
-router.patch(
-    '/:id/moderate',
-    auth(...ADMIN_ROLES),
-    validateRequest(ModeratePropertyValidationZodSchema),
-    PropertyController.moderateProperty,
-)
-
 // Owner of the property or any admin (ownership is checked in the service)
 router.get('/:id', auth(Role.OWNER, ...ADMIN_ROLES), PropertyController.getPropertyById)
 router.patch(
@@ -44,8 +36,13 @@ router.patch(
     validateRequest(UpdatePropertyValidationZodSchema),
     PropertyController.updateProperty,
 )
-router.patch('/:id/publish', auth(Role.OWNER, ...ADMIN_ROLES), PropertyController.publishProperty)
-router.patch('/:id/disable', auth(Role.OWNER, ...ADMIN_ROLES), PropertyController.disableProperty)
+// SUSPENDED is admin-only: checked in the service
+router.patch(
+    '/:id/status',
+    auth(Role.OWNER, ...ADMIN_ROLES),
+    validateRequest(UpdatePropertyStatusValidationZodSchema),
+    PropertyController.updatePropertyStatus,
+)
 router.post(
     '/:id/images',
     auth(Role.OWNER, ...ADMIN_ROLES),

@@ -84,30 +84,17 @@ const updateProperty = catchAsync(async (req: Request, res: Response) => {
     })
 })
 
-const publishProperty = catchAsync(async (req: Request, res: Response) => {
-    const result = await PropertyServices.publishProperty(
+const updatePropertyStatus = catchAsync(async (req: Request, res: Response) => {
+    const result = await PropertyServices.updatePropertyStatus(
         req.user as RequestUser,
         req.params.id as string,
+        req.body,
     )
 
     sendResponse(res, {
         statusCode: httpStatus.OK,
         success: true,
-        message: 'Property Published Successfully',
-        data: result,
-    })
-})
-
-const disableProperty = catchAsync(async (req: Request, res: Response) => {
-    const result = await PropertyServices.disableProperty(
-        req.user as RequestUser,
-        req.params.id as string,
-    )
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message: 'Property Disabled Successfully',
+        message: 'Property Status Updated Successfully',
         data: result,
     })
 })
@@ -120,24 +107,6 @@ const archiveProperty = catchAsync(async (req: Request, res: Response) => {
         success: true,
         message: 'Property Removed From Listings Successfully',
         data: null,
-    })
-})
-
-const moderateProperty = catchAsync(async (req: Request, res: Response) => {
-    const result = await PropertyServices.moderateProperty(
-        req.user as RequestUser,
-        req.params.id as string,
-        req.body,
-    )
-
-    sendResponse(res, {
-        statusCode: httpStatus.OK,
-        success: true,
-        message:
-            req.body.action === 'SUSPEND'
-                ? 'Property Suspended Successfully'
-                : 'Property Restored Successfully',
-        data: result,
     })
 })
 
@@ -178,10 +147,8 @@ export const PropertyController = {
     getPublicPropertyById,
     getPropertyById,
     updateProperty,
-    publishProperty,
-    disableProperty,
+    updatePropertyStatus,
     archiveProperty,
-    moderateProperty,
     addImages,
     removeImage,
 }
