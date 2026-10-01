@@ -7,6 +7,8 @@ It covers the full rental journey:
 
 **Property listing → Room discovery → Roommate matching → Viewing → Application → Approval → Rental → Payment**
 
+🌐 **Live API:** <https://ph-backend-assignment-6.vercel.app>
+
 📄 **Requirements:** [Project Requirements.md](Project%20Requirements.md)
 
 ---
@@ -140,7 +142,10 @@ Every job is idempotent and protected by a Redis lock, so only one server instan
 
 ## 📚 API Overview
 
-Base URL: `http://localhost:5000/api/v1`
+| Environment | Base URL |
+|---|---|
+| Live | `https://ph-backend-assignment-6.vercel.app/api/v1` |
+| Local | `http://localhost:5000/api/v1` |
 
 | Module | Path | Main endpoints |
 |---|---|---|

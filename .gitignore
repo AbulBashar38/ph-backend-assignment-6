@@ -13,3 +13,4 @@ package-lock.json
 pnpm-workspace.yaml
 .vscode
 /example-backend/
+.vercel
