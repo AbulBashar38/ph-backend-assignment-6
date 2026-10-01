@@ -17,7 +17,7 @@ match with roommates, request viewings, apply, rent, and pay online; admins mode
 | Payments | `stripe` (Checkout Sessions + webhook) | bKash, SSLCommerz |
 | Auth | `jsonwebtoken` + `bcryptjs`; Google via `google-auth-library` `verifyIdToken` | Passport |
 | Dates / PDF | `date-fns`; `pdfkit` for the payment receipt | moment |
-| API docs | `swagger-ui-express` + `@asteasolutions/zod-to-openapi` | hand-written YAML, swagger-jsdoc |
+| API docs | `@asteasolutions/zod-to-openapi` + Swagger UI page loaded from CDN (`docs/index.ts`) | swagger-ui-express (its static files break on Vercel), hand-written YAML, swagger-jsdoc |
 
 Also: Node (ESM), TypeScript (strict), Express 5, Prisma 7 + PostgreSQL (`@prisma/adapter-pg`), `http-status`, Biome.
 

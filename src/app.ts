@@ -2,9 +2,8 @@ import cookieParser from 'cookie-parser'
 import cors from 'cors'
 import express, { type Application, type Request, type Response } from 'express'
 import httpStatus from 'http-status'
-import swaggerUi from 'swagger-ui-express'
 import config from './app/config'
-import { openApiDocument } from './app/docs'
+import { openApiDocument, swaggerUiHtml } from './app/docs'
 import { globalErrorHandler } from './app/middleware/globalErrorHandler'
 import { notFound } from './app/middleware/notFound'
 import { AnalyticsRoutes } from './app/module/analytics/analytics.route'
@@ -44,7 +43,9 @@ if (config.node_env !== 'production' || config.swagger_enabled === 'true') {
     app.get('/api/docs.json', (_req: Request, res: Response) => {
         res.json(openApiDocument)
     })
-    app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument))
+    app.get('/api/docs', (_req: Request, res: Response) => {
+        res.type('html').send(swaggerUiHtml)
+    })
 }
 
 app.use('/api/v1/auth', AuthRoutes)

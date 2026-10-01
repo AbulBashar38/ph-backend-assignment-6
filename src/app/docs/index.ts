@@ -33,3 +33,28 @@ export const openApiDocument = new OpenApiGeneratorV31(registry.definitions).gen
         { url: `http://localhost:${config.port ?? 5000}/api/v1`, description: 'Local' },
     ],
 })
+
+// Swagger UI's assets come from a CDN: serverless hosts (Vercel) don't ship swagger-ui-dist's static files,
+// so serving them from node_modules returns the HTML page instead of the JS/CSS
+const SWAGGER_UI_CDN = 'https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.0'
+
+export const swaggerUiHtml = `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Housing & Roommate Platform API</title>
+    <link rel="stylesheet" href="${SWAGGER_UI_CDN}/swagger-ui.css" />
+</head>
+<body>
+    <div id="swagger-ui"></div>
+    <script src="${SWAGGER_UI_CDN}/swagger-ui-bundle.js"></script>
+    <script>
+        window.ui = SwaggerUIBundle({
+            url: '/api/docs.json',
+            dom_id: '#swagger-ui',
+            persistAuthorization: true,
+        })
+    </script>
+</body>
+</html>`
