@@ -149,7 +149,7 @@ Every job is idempotent and protected by a Redis lock, so only one server instan
 | Environment | Base URL |
 |---|---|
 | Live | `https://ph-backend-assignment-6.vercel.app/api/v1` |
-| Local | `http://localhost:5000/api/v1` |
+| Local | `http://localhost:5050/api/v1` |
 
 | Module | Path | Main endpoints |
 |---|---|---|
@@ -166,7 +166,7 @@ Every job is idempotent and protected by a Redis lock, so only one server instan
 | Audit | `/audit` | audit log list & details (admin) |
 | Analytics | `/analytics` | platform statistics (admin) |
 
-📖 **Full interactive docs (Swagger):** <http://localhost:5000/api/docs>. The raw OpenAPI spec is at `/api/docs.json`.
+📖 **Full interactive docs (Swagger):** <http://localhost:5050/api/docs>. The raw OpenAPI spec is at `/api/docs.json`.
 
 ---
 
@@ -200,7 +200,9 @@ Fill in `.env`. Every variable is explained in [.env.example](.env.example). The
 
 | Variable | Description |
 |---|---|
-| `PORT` | API port (the examples in this README use `5000`) |
+| `PORT` | API port (the examples in this README use `5050`) |
+| `FRONTEND_URL` | Frontend origin allowed by CORS (also used for links in emails and Stripe redirects) |
+| `CORS_ORIGINS` | Extra allowed CORS origins, comma-separated (e.g. the live Swagger page calling your local server) |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | Two different random secrets |
 | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD` | Super admin account created on first boot |
@@ -237,18 +239,30 @@ npm run build
 npm start
 ```
 
-The API runs at `http://localhost:5000`, and the Swagger docs are at `http://localhost:5000/api/docs`.
+The API runs at `http://localhost:5050`, and the Swagger docs are at `http://localhost:5050/api/docs`.
 
 ### 6. Stripe webhooks (local)
 
 In a second terminal, forward Stripe events to the API:
 
 ```bash
-stripe listen --forward-to localhost:5000/api/v1/payment/webhook
+stripe listen --forward-to localhost:5050/api/v1/payment/webhook
 ```
 
 Copy the `whsec_…` secret it prints into `STRIPE_WEBHOOK_SECRET` and restart the server.
 Test card: `4242 4242 4242 4242`, any future date, any CVC.
+
+### 7. Calling your local API from the live Swagger page (optional)
+
+The live docs (`https://ph-backend-assignment-6.vercel.app/api/docs`) can send requests to your local server
+when you pick **Local** in the server dropdown. Two things must allow it:
+
+1. **CORS:** keep `CORS_ORIGINS=https://ph-backend-assignment-6.vercel.app` in `.env` and restart the server.
+2. **Chrome's local network permission:** Chrome blocks public sites from calling `localhost` until you allow it.
+   If you see *"Permission was denied for this request to access the `loopback` address space"*, click the icon
+   left of the address bar → **Site settings** → **Local network access** → **Allow**, then reload.
+
+Simpler alternative: use the local docs at <http://localhost:5050/api/docs>. They call the same origin, so neither step is needed.
 
 ### 📜 Scripts
 

@@ -1,6 +1,6 @@
 import cookieParser from 'cookie-parser'
 import cors from 'cors'
-import express, { type Application, type Request, type Response } from 'express'
+import express, { type Application, type NextFunction, type Request, type Response } from 'express'
 import httpStatus from 'http-status'
 import config from './app/config'
 import { openApiDocument, swaggerUiHtml } from './app/docs'
@@ -21,9 +21,19 @@ import { ViewingRoutes } from './app/module/viewing/viewing.route'
 
 const app: Application = express()
 
+// Older Chrome (Private Network Access) asks in the preflight before a public page may call localhost
+app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.headers['access-control-request-private-network'] === 'true') {
+        res.setHeader('Access-Control-Allow-Private-Network', 'true')
+    }
+    next()
+})
+
 app.use(
     cors({
-        origin: config.frontend_url,
+        origin: [config.frontend_url, ...config.cors_origins].filter(
+            (origin): origin is string => !!origin,
+        ),
         credentials: true,
     }),
 )
