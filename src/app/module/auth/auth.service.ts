@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs'
 import httpStatus from 'http-status'
-import { AuthProvider, UserStatus } from '../../../generated/prisma/enums'
+import { AuthProvider, Role, UserStatus } from '../../../generated/prisma/enums'
 import config from '../../config'
 import { googleClient } from '../../lib/googleAuth'
 import { prisma } from '../../lib/prisma'
@@ -252,6 +252,15 @@ const googleLogin = async (payload: IGoogleLoginPayload) => {
         )
     }
 
+    // Never guess the role of a new account: the frontend asks the user, then resends the same ID token with it
+    if (!existingUser && !payload.role) {
+        throw new AppError(
+            httpStatus.PRECONDITION_REQUIRED,
+            'Please Choose Whether You Want To Find A Place Or Rent Out Space',
+        )
+    }
+    const newUserRole = payload.role ?? Role.TENANT
+
     let isNewUser = false
 
     const user = existingUser
@@ -278,7 +287,7 @@ const googleLogin = async (payload: IGoogleLoginPayload) => {
                       googleId,
                       authProvider: AuthProvider.GOOGLE,
                       emailVerified: true,
-                      role: payload.role,
+                      role: newUserRole,
                       imageUrl: googlePayload.picture ?? null,
                   },
                   omit: { password: true },

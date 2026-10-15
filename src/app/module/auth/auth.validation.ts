@@ -34,10 +34,9 @@ export const RefreshTokenValidationZodSchema = z.object({
 
 export const GoogleLoginValidationZodSchema = z.object({
     idToken: z.string('Google ID Token Is Required').min(1, 'Google ID Token Is Required'),
-    // Only used when this Google login creates a new account; ignored for existing users
-    role: z
-        .enum([Role.TENANT, Role.OWNER], 'Role Must Be Either TENANT Or OWNER')
-        .default(Role.TENANT),
+    // Only used when this Google login creates a new account; ignored for existing users.
+    // Without it, a first-time Google user gets 428 so the frontend can ask which role they want.
+    role: z.enum([Role.TENANT, Role.OWNER], 'Role Must Be Either TENANT Or OWNER').optional(),
 })
 
 export const ChangePasswordValidationZodSchema = z

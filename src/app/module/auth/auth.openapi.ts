@@ -143,7 +143,8 @@ registry.registerPath({
         'Send the Google **ID token** (a JWT) that the frontend gets from Google Identity Services, ' +
         "not an access token. Its audience must be this API's `GOOGLE_CLIENT_ID`.\n\n" +
         '- Existing account (matched by Google ID, then email) → logged in (200); an email/password account gets Google linked.\n' +
-        '- No account → a new one is created with `role` (TENANT by default) (201).\n' +
+        '- No account and a `role` (TENANT or OWNER) was sent → a new account is created with it (201).\n' +
+        '- No account and no `role` → 428, nothing is created: ask the user to choose a role, then send the same ID token again with it.\n' +
         '- The Google email must be verified by Google (403 otherwise).\n\n' +
         'Testing without a frontend: in the Google OAuth 2.0 Playground, use your own OAuth credentials, ' +
         'authorize the `openid email profile` scopes, exchange the code, and copy the `id_token`.',
@@ -164,7 +165,7 @@ registry.registerPath({
             'Account Created With Google Successfully',
             AuthResultSchema.extend({ isNewUser: z.boolean() }),
         ),
-        ...errorResponses(400, 401, 403, 409),
+        ...errorResponses(400, 401, 403, 409, 428),
     },
 })
 

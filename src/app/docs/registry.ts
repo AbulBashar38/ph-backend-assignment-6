@@ -104,6 +104,7 @@ const errorDescriptions: Record<number, string> = {
     404: 'Not found',
     409: 'Conflict (duplicate or invalid state)',
     413: 'File too large',
+    428: 'More information needed (e.g. a role for a new Google account)',
     429: 'Too many requests (OTP cooldown or attempts)',
     502: 'Upstream service failed (email, payment, upload)',
 }
