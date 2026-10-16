@@ -23,6 +23,13 @@ export default {
     super_admin_name: process.env.SUPER_ADMIN_NAME,
     super_admin_email: process.env.SUPER_ADMIN_EMAIL,
     super_admin_password: process.env.SUPER_ADMIN_PASSWORD,
+    // Dedicated demo accounts for evaluators (npm run seed:demo); public on purpose, never real people
+    demo_admin_email: process.env.DEMO_ADMIN_EMAIL,
+    demo_admin_password: process.env.DEMO_ADMIN_PASSWORD,
+    demo_owner_email: process.env.DEMO_OWNER_EMAIL,
+    demo_owner_password: process.env.DEMO_OWNER_PASSWORD,
+    demo_tenant_email: process.env.DEMO_TENANT_EMAIL,
+    demo_tenant_password: process.env.DEMO_TENANT_PASSWORD,
     redis_user: process.env.REDIS_USER,
     redis_password: process.env.REDIS_PASSWORD,
     redis_host: process.env.REDIS_HOST!,
