@@ -30,6 +30,8 @@ export default {
     smtp_user: process.env.SMTP_USER!,
     smtp_password: process.env.SMTP_PASSWORD!,
     email_sender: process.env.EMAIL_SENDER!,
+    // Inbox for contact form messages (falls back to SMTP_USER)
+    contact_email: process.env.CONTACT_EMAIL || undefined,
     cloudinary_cloud_name: process.env.CLOUDINARY_CLOUD_NAME!,
     cloudinary_api_key: process.env.CLOUDINARY_API_KEY!,
     cloudinary_api_secret: process.env.CLOUDINARY_API_SECRET!,

@@ -1,0 +1,14 @@
+<%- include('partials/layout-start', {
+  title: 'New contact form message',
+  preheader: `${name} wrote: ${subject}`,
+}) %>
+<%- include('partials/heading', { text: 'New message from the contact form' }) %>
+<p style="margin: 0 0 12px 0;">
+  <strong style="color: #0f172a;"><%= name %></strong> (<%= email %>) sent a message on <%= sentAt %>.
+</p>
+<p style="margin: 0 0 20px 0;"><strong style="color: #0f172a;">Subject:</strong> <%= subject %></p>
+
+<%- include('partials/callout', { title: 'Message', text: message }) %>
+
+<p style="margin: 20px 0 0 0; color: #475569;">Reply to this email to answer <%= name %> directly.</p>
+<%- include('partials/layout-end') %>

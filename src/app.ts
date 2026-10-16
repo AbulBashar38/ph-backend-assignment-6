@@ -10,6 +10,7 @@ import { AnalyticsRoutes } from './app/module/analytics/analytics.route'
 import { ApplicationRoutes } from './app/module/application/application.route'
 import { AuditRoutes } from './app/module/audit/audit.route'
 import { AuthRoutes } from './app/module/auth/auth.route'
+import { ContactRoutes } from './app/module/contact/contact.route'
 import { NotificationRoutes } from './app/module/notification/notification.route'
 import { PaymentRoutes } from './app/module/payment/payment.route'
 import { PropertyRoutes } from './app/module/property/property.route'
@@ -70,6 +71,7 @@ app.use('/api/v1/payment', PaymentRoutes)
 app.use('/api/v1/notification', NotificationRoutes)
 app.use('/api/v1/audit', AuditRoutes)
 app.use('/api/v1/analytics', AnalyticsRoutes)
+app.use('/api/v1/contact', ContactRoutes)
 
 // Basic route
 app.get('/', (_req: Request, res: Response) => {

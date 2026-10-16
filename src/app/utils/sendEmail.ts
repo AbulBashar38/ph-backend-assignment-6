@@ -47,6 +47,13 @@ interface IEmailTemplateData {
         compatibility: number
         message: string | null
     }
+    'contact-message': {
+        name: string
+        email: string
+        subject: string
+        message: string
+        sentAt: string
+    }
     'roommate-connected': {
         name: string
         otherName: string
@@ -64,6 +71,8 @@ interface ISendEmailPayload<T extends TEmailTemplate> {
     templateData: IEmailTemplateData[T]
     // Plain-text alternative: helps deliverability and shows in lock-screen previews
     text?: string
+    // Where replies go, if not the sender (e.g. the person who used the contact form)
+    replyTo?: string
     attachments?: SendMailOptions['attachments']
 }
 
@@ -88,6 +97,7 @@ export const sendEmail = async <T extends TEmailTemplate>({
     templateName,
     templateData,
     text,
+    replyTo,
     attachments,
 }: ISendEmailPayload<T>) => {
     const templatePath = path.join(process.cwd(), `src/app/templates/${templateName}.ejs`)
@@ -99,6 +109,7 @@ export const sendEmail = async <T extends TEmailTemplate>({
         subject,
         html,
         text,
+        replyTo,
         attachments,
     })
 }
