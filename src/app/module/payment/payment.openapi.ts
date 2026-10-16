@@ -95,8 +95,8 @@ registry.registerPath({
     description:
         'No body: the amount always comes from the bill. An open checkout for this bill is reused (no duplicate ' +
         `sessions); otherwise a new one is created, valid for ${CHECKOUT_SESSION_MINUTES} minutes. Redirect the browser to ` +
-        '`paymentUrl`. Stripe then sends the user to `/dashboard/payments?status=success&session_id=…` (poll ' +
-        '`GET /payment/session/{sessionId}` until `PAID`) or `?status=cancelled&payment_id=…`.\n\n' +
+        "`paymentUrl`. Stripe then sends the user to the frontend's `/payment/success?session_id=…` (poll " +
+        '`GET /payment/session/{sessionId}` until `PAID`) or `/payment/cancel?payment_id=…`.\n\n' +
         '409: already paid, the rental has ended, a payment is being processed, or another checkout start is in progress. ' +
         `502: Stripe unavailable.\n\n**Lifecycle:** ${lifecycle}`,
     security: authSecurity,

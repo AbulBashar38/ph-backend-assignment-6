@@ -190,7 +190,8 @@ const createCheckoutSession = async (actor: RequestUser, paymentId: string) => {
         const existing = await reusableSession(payment)
         if (existing) return toCheckout(existing)
 
-        const paymentsPage = `${config.frontend_url}/dashboard/payments`
+        // The frontend's result pages: success reads the session (and waits for the webhook), cancel offers a retry
+        const paymentPages = `${config.frontend_url}/payment`
         let session: Stripe.Checkout.Session
 
         try {
@@ -217,8 +218,8 @@ const createCheckoutSession = async (actor: RequestUser, paymentId: string) => {
                         },
                     },
                 ],
-                success_url: `${paymentsPage}?status=success&session_id={CHECKOUT_SESSION_ID}`,
-                cancel_url: `${paymentsPage}?status=cancelled&payment_id=${payment.id}`,
+                success_url: `${paymentPages}/success?session_id={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${paymentPages}/cancel?payment_id=${payment.id}`,
                 expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_MINUTES * 60,
             })
         } catch (error) {
