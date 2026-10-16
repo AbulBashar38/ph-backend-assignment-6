@@ -5,7 +5,8 @@
  * for the demo owner with photos on Cloudinary, a few other tenants' roommate profiles, and, through the real
  * services, the demo tenant's roommate profile, a viewing request, a pending application and an approved one
  * (which creates a rental and its first rent bill, ready to pay with Stripe test cards), plus a few months of past
- * rent for the demo owner's earnings charts. The demo tenant always keeps one bill to pay.
+ * rent for the demo owner's earnings charts. The demo tenant always keeps one bill to pay, and has a roommate
+ * request to answer plus one accepted connection.
  *
  * Idempotent: listings are only created if the demo owner has none, bookings only if the demo tenant has none.
  */
@@ -725,6 +726,56 @@ const ensureTenantHasDueBill = async (
     console.log('  approved a new application → a rent bill the demo tenant can pay')
 }
 
+/**
+ * Roommate requests through the real services: one waiting for the demo tenant to answer, and one accepted
+ * connection (so the connections page shows contact details). Skipped once the demo tenant has any requests.
+ */
+const seedRoommateRequests = async (tenant: {
+    id: string
+    name: string
+    email: string
+    role: Role
+}) => {
+    const existing = await prisma.roommateRequest.count({
+        where: { OR: [{ senderId: tenant.id }, { receiverId: tenant.id }] },
+    })
+    if (existing > 0) {
+        console.log('  demo tenant already has roommate requests; skipping')
+        return
+    }
+
+    const seeker = (email: string) =>
+        prisma.user.findUniqueOrThrow({
+            where: { email },
+            select: { id: true, name: true, email: true, role: true },
+        })
+    const profileOf = (userId: string) =>
+        prisma.roommateProfile.findUniqueOrThrow({
+            where: { tenantId: userId },
+            select: { id: true },
+        })
+    const demoProfile = await profileOf(tenant.id)
+
+    // Waiting for the demo tenant: accept or decline it on /dashboard/roommate/requests
+    const rafiq = await seeker('rafiq.seeker@example.com')
+    await RoommateServices.sendRoommateRequest(actorOf(rafiq), {
+        receiverProfileId: demoProfile.id,
+        message:
+            'Hi! We seem to want the same area and budget. Want to look for a 2-bed flat together?',
+    })
+
+    // Already connected: the demo tenant asked, Tanvir accepted
+    const tanvir = await seeker('tanvir.seeker@example.com')
+    const request = await RoommateServices.sendRoommateRequest(actorOf(tenant), {
+        receiverProfileId: (await profileOf(tanvir.id)).id,
+        message: 'Your schedule sounds a lot like mine. Shall we team up?',
+    })
+    await RoommateServices.updateRoommateRequestStatus(actorOf(tanvir), request.id, {
+        status: 'ACCEPTED',
+    })
+    console.log('  added a pending roommate request and an accepted connection')
+}
+
 const main = async () => {
     console.log('Seeding demo data…')
 
@@ -757,6 +808,7 @@ const main = async () => {
     await seedTenantActivity(tenant, owner)
     await seedRentHistory(owner)
     await ensureTenantHasDueBill(tenant, owner)
+    await seedRoommateRequests(tenant)
 
     console.log('Done.')
 }
