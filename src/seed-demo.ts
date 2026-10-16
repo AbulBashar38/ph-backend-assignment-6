@@ -5,7 +5,7 @@
  * for the demo owner with photos on Cloudinary, a few other tenants' roommate profiles, and, through the real
  * services, the demo tenant's roommate profile, a viewing request, a pending application and an approved one
  * (which creates a rental and its first rent bill, ready to pay with Stripe test cards), plus a few months of past
- * rent for the demo owner's earnings charts.
+ * rent for the demo owner's earnings charts. The demo tenant always keeps one bill to pay.
  *
  * Idempotent: listings are only created if the demo owner has none, bookings only if the demo tenant has none.
  */
@@ -675,6 +675,56 @@ const seedRentHistory = async (owner: { id: string }) => {
     }
 }
 
+/**
+ * Keeps one bill the evaluator can pay with a Stripe test card: if the demo tenant has nothing payable, apply for a
+ * room and approve it through the real services (which create the rental and its first rent bill).
+ */
+const ensureTenantHasDueBill = async (
+    tenant: { id: string; name: string; email: string; role: Role },
+    owner: { id: string; name: string; email: string; role: Role },
+) => {
+    const payable = await prisma.payment.count({
+        where: {
+            tenantId: tenant.id,
+            status: { in: [PaymentStatus.PENDING, PaymentStatus.FAILED, PaymentStatus.CANCELLED] },
+            rental: { status: { in: [RentalStatus.PENDING, RentalStatus.ACTIVE] } },
+        },
+    })
+    if (payable > 0) return
+
+    const room = await prisma.room.findFirst({
+        where: {
+            name: 'Small bedroom',
+            status: RoomStatus.AVAILABLE,
+            isDeleted: false,
+            property: {
+                title: 'Quiet 3-bed apartment in Mohammadpur',
+                ownerId: owner.id,
+                isDeleted: false,
+            },
+        },
+        select: { id: true },
+    })
+    if (!room) {
+        console.log('  no free room for a new demo bill; skipping')
+        return
+    }
+
+    const application = await ApplicationServices.createApplication(
+        actorOf(tenant),
+        await CreateApplicationValidationZodSchema.parseAsync({
+            roomId: room.id,
+            moveInDate: addDays(new Date(), 5).toISOString(),
+            occupants: 1,
+            message: 'Looking for a quiet room close to work. Happy to move in next week.',
+        }),
+    )
+    await ApplicationServices.updateApplicationStatus(actorOf(owner), application.id, {
+        status: 'APPROVED',
+    })
+    console.log('  approved a new application → a rent bill the demo tenant can pay')
+}
+
 const main = async () => {
     console.log('Seeding demo data…')
 
@@ -706,6 +756,7 @@ const main = async () => {
     await seedOtherSeekers()
     await seedTenantActivity(tenant, owner)
     await seedRentHistory(owner)
+    await ensureTenantHasDueBill(tenant, owner)
 
     console.log('Done.')
 }
