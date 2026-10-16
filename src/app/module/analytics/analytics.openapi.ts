@@ -88,3 +88,51 @@ registry.registerPath({
         ...errorResponses(401, 403),
     },
 })
+
+const OwnerStatsSchema = z
+    .object({
+        properties: PlatformStatsSchema.shape.properties,
+        rooms: PlatformStatsSchema.shape.rooms.extend({
+            occupancyRate: z.number().int().meta({
+                description: 'Occupied + reserved rooms as a share of all rooms, 0–100',
+                example: 75,
+            }),
+        }),
+        applications: PlatformStatsSchema.shape.applications,
+        rentals: PlatformStatsSchema.shape.rentals,
+        payments: PlatformStatsSchema.shape.payments.extend({
+            outstanding: z
+                .number()
+                .int()
+                .meta({ description: 'Sum of PENDING + FAILED bills, whole taka', example: 9500 }),
+            byProperty: z
+                .array(
+                    z.object({
+                        propertyId: z.string(),
+                        title: z.string(),
+                        revenue: z.number().int().meta({ example: 57000 }),
+                        payments: z.number().int().meta({ example: 6 }),
+                    }),
+                )
+                .meta({
+                    description: 'All-time paid revenue per property, highest first (top 10)',
+                }),
+        }),
+        generatedAt: z.iso.datetime(),
+    })
+    .meta({ id: 'OwnerStats' })
+
+registry.registerPath({
+    method: 'get',
+    path: '/analytics/owner',
+    tags: [TAG],
+    summary: "The signed-in owner's earnings and occupancy (OWNER)",
+    description:
+        'Monthly paid revenue, revenue per property, payment counts by status, outstanding rent, rooms by status ' +
+        '(with the occupancy rate), active rentals and pending applications, all limited to the owner’s own listings.',
+    security: authSecurity,
+    responses: {
+        200: successResponse('Owner Statistics Retrieved Successfully', OwnerStatsSchema),
+        ...errorResponses(401, 403),
+    },
+})

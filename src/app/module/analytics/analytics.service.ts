@@ -1,4 +1,5 @@
 import { subMonths } from 'date-fns'
+import { Prisma } from '../../../generated/prisma/client'
 import {
     ApplicationStatus,
     PaymentStatus,
@@ -31,21 +32,25 @@ const monthKey = (date: Date) =>
         .toLocaleDateString('en-CA', { timeZone: 'Asia/Dhaka', year: 'numeric', month: '2-digit' })
         .slice(0, 7)
 
-// Paid revenue per month (Bangladesh time) for the last REVENUE_MONTHS months, oldest first, empty months = 0
-const getMonthlyRevenue = async () => {
+// Paid revenue per month (Bangladesh time) for the last REVENUE_MONTHS months, oldest first, empty months = 0.
+// With an ownerId, only bills of that owner's rentals count.
+const getMonthlyRevenue = async (ownerId?: string) => {
     const now = new Date()
     const months = Array.from({ length: REVENUE_MONTHS }, (_, index) =>
         monthKey(subMonths(now, REVENUE_MONTHS - 1 - index)),
     )
     // The 1st of the first month, as a Dhaka date (+06:00)
     const since = new Date(`${months[0]}-01T00:00:00+06:00`)
+    const ownerFilter = ownerId
+        ? Prisma.sql`AND p."rentalId" IN (SELECT "id" FROM "rentals" WHERE "ownerId" = ${ownerId})`
+        : Prisma.empty
 
     const rows = await prisma.$queryRaw<{ month: string; revenue: number; count: number }[]>`
-        SELECT to_char(("paidAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Dhaka', 'YYYY-MM') AS month,
-               SUM("amount")::int AS revenue,
+        SELECT to_char((p."paidAt" AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Dhaka', 'YYYY-MM') AS month,
+               SUM(p."amount")::int AS revenue,
                COUNT(*)::int AS count
-        FROM "payments"
-        WHERE "status" = 'PAID' AND "paidAt" >= ${since}
+        FROM "payments" p
+        WHERE p."status" = 'PAID' AND p."paidAt" >= ${since} ${ownerFilter}
         GROUP BY 1`
 
     const byMonth = new Map(rows.map((row) => [row.month, row]))
@@ -55,6 +60,21 @@ const getMonthlyRevenue = async () => {
         payments: byMonth.get(month)?.count ?? 0,
     }))
 }
+
+// All-time paid revenue per property of one owner, highest first (properties with no paid rent are left out)
+const getRevenueByProperty = (ownerId: string) =>
+    prisma.$queryRaw<{ propertyId: string; title: string; revenue: number; payments: number }[]>`
+        SELECT r."propertyId" AS "propertyId",
+               pr."title" AS title,
+               SUM(p."amount")::int AS revenue,
+               COUNT(*)::int AS payments
+        FROM "payments" p
+        JOIN "rentals" r ON r."id" = p."rentalId"
+        JOIN "properties" pr ON pr."id" = r."propertyId"
+        WHERE p."status" = 'PAID' AND r."ownerId" = ${ownerId}
+        GROUP BY r."propertyId", pr."title"
+        ORDER BY revenue DESC
+        LIMIT 10`
 
 /**
  * GET /analytics — platform statistics for admins (requirement §18). Counts live data only (soft-deleted rows are
@@ -177,6 +197,123 @@ const getPlatformStats = async () => {
     }
 }
 
+/**
+ * GET /analytics/owner — an owner's earnings and occupancy (backend change B4). Same shape and rules as the
+ * platform statistics, scoped to the owner's own listings, rentals and bills.
+ */
+const getOwnerStats = async (ownerId: string) => {
+    const liveProperty = { ownerId, isDeleted: false }
+    const liveRoom = { isDeleted: false, property: liveProperty }
+    const ownRental = { ownerId }
+    const unpaidStatuses = [PaymentStatus.PENDING, PaymentStatus.FAILED]
+
+    const [
+        propertiesByStatus,
+        roomsByStatus,
+        applicationsByStatus,
+        rentalsByStatus,
+        paymentsByStatus,
+        paidTotals,
+        unpaidTotals,
+    ] = await prisma.$transaction([
+        prisma.property.groupBy({
+            by: ['status'],
+            where: liveProperty,
+            _count: { _all: true },
+            orderBy: { status: 'asc' },
+        }),
+        prisma.room.groupBy({
+            by: ['status'],
+            where: liveRoom,
+            _count: { _all: true },
+            orderBy: { status: 'asc' },
+        }),
+        prisma.application.groupBy({
+            by: ['status'],
+            where: { property: { ownerId } },
+            _count: { _all: true },
+            orderBy: { status: 'asc' },
+        }),
+        prisma.rental.groupBy({
+            by: ['status'],
+            where: ownRental,
+            _count: { _all: true },
+            orderBy: { status: 'asc' },
+        }),
+        prisma.payment.groupBy({
+            by: ['status'],
+            where: { rental: ownRental },
+            _count: { _all: true },
+            orderBy: { status: 'asc' },
+        }),
+        prisma.payment.aggregate({
+            where: { status: PaymentStatus.PAID, rental: ownRental },
+            _sum: { amount: true },
+            _count: { _all: true },
+        }),
+        prisma.payment.aggregate({
+            where: { status: { in: unpaidStatuses }, rental: ownRental },
+            _sum: { amount: true },
+        }),
+    ])
+
+    const properties = countsBy(PropertyStatus, propertiesByStatus, 'status')
+    const rooms = countsBy(RoomStatus, roomsByStatus, 'status')
+    const applications = countsBy(ApplicationStatus, applicationsByStatus, 'status')
+    const rentals = countsBy(RentalStatus, rentalsByStatus, 'status')
+    const payments = countsBy(PaymentStatus, paymentsByStatus, 'status')
+    const sum = (counts: Record<string, number>) => Object.values(counts).reduce((a, b) => a + b, 0)
+
+    const [monthlyRevenue, byProperty] = await Promise.all([
+        getMonthlyRevenue(ownerId),
+        getRevenueByProperty(ownerId),
+    ])
+    const totalRooms = sum(rooms)
+
+    return {
+        properties: {
+            total: sum(properties),
+            published: properties.PUBLISHED,
+            byStatus: properties,
+        },
+        rooms: {
+            total: totalRooms,
+            available: rooms.AVAILABLE,
+            occupied: rooms.OCCUPIED,
+            reserved: rooms.RESERVED,
+            // Share of rooms that are taken (occupied or reserved), 0–100
+            occupancyRate: totalRooms
+                ? Math.round(((rooms.OCCUPIED + rooms.RESERVED) / totalRooms) * 100)
+                : 0,
+            byStatus: rooms,
+        },
+        applications: {
+            total: sum(applications),
+            pending: applications.PENDING,
+            byStatus: applications,
+        },
+        rentals: {
+            total: sum(rentals),
+            active: rentals.ACTIVE,
+            pending: rentals.PENDING,
+            byStatus: rentals,
+        },
+        payments: {
+            total: sum(payments),
+            paid: paidTotals._count._all,
+            unpaid: payments.PENDING + payments.FAILED,
+            totalRevenue: paidTotals._sum.amount ?? 0,
+            outstanding: unpaidTotals._sum.amount ?? 0,
+            currency: 'BDT',
+            byStatus: payments,
+            monthlyRevenue,
+            byProperty,
+        },
+        generatedAt: new Date(),
+    }
+}
+
 export const AnalyticsServices = {
     getPlatformStats,
+    getOwnerStats,
 }
