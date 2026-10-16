@@ -12,8 +12,12 @@ const baseCookieOptions: CookieOptions = {
     sameSite: isProduction ? 'none' : 'lax',
 }
 
-// The refresh token is only ever needed by the auth routes
-const refreshCookieOptions: CookieOptions = { ...baseCookieOptions, path: '/api/v1/auth' }
+// Sent with every request (not just /api/v1/auth) so the frontend's route guard can tell a signed-in user whose
+// short-lived access cookie has expired from a signed-out one. It's httpOnly, and only the refresh route accepts it.
+const refreshCookieOptions: CookieOptions = { ...baseCookieOptions, path: '/' }
+
+// Where the refresh cookie used to live; cleared so browsers don't keep sending an old copy alongside the new one
+const legacyRefreshCookieOptions: CookieOptions = { ...baseCookieOptions, path: '/api/v1/auth' }
 
 export const setAuthCookies = (res: Response, { accessToken, refreshToken }: IAuthTokens) => {
     res.cookie('accessToken', accessToken, {
@@ -24,9 +28,11 @@ export const setAuthCookies = (res: Response, { accessToken, refreshToken }: IAu
         ...refreshCookieOptions,
         maxAge: jwtUtils.getRemainingLifetimeMs(refreshToken),
     })
+    res.clearCookie('refreshToken', legacyRefreshCookieOptions)
 }
 
 export const clearAuthCookies = (res: Response) => {
     res.clearCookie('accessToken', baseCookieOptions)
     res.clearCookie('refreshToken', refreshCookieOptions)
+    res.clearCookie('refreshToken', legacyRefreshCookieOptions)
 }
