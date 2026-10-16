@@ -4,17 +4,19 @@
  * Creates (or refreshes) the demo admin, owner and tenant from DEMO_* env vars, a set of published listings
  * for the demo owner with photos on Cloudinary, a few other tenants' roommate profiles, and, through the real
  * services, the demo tenant's roommate profile, a viewing request, a pending application and an approved one
- * (which creates a rental and its first rent bill, ready to pay with Stripe test cards).
+ * (which creates a rental and its first rent bill, ready to pay with Stripe test cards), plus a few months of past
+ * rent for the demo owner's earnings charts.
  *
  * Idempotent: listings are only created if the demo owner has none, bookings only if the demo tenant has none.
  */
-import { addDays, startOfDay } from 'date-fns'
+import { addDays, addMonths, startOfDay, subDays, subMonths } from 'date-fns'
 import config from './app/config'
 import { cloudinary } from './app/lib/cloudinary'
 import { prisma } from './app/lib/prisma'
 import type { RequestUser } from './app/middleware/checkAuth'
 import { ApplicationServices } from './app/module/application/application.service'
 import { CreateApplicationValidationZodSchema } from './app/module/application/application.validation'
+import { createRentPayment } from './app/module/payment/payment.utils'
 import { RoommateServices } from './app/module/roommate/roommate.service'
 import { CreateRoommateProfileValidationZodSchema } from './app/module/roommate/roommate.validation'
 import { ViewingServices } from './app/module/viewing/viewing.service'
@@ -22,13 +24,17 @@ import { CreateViewingValidationZodSchema } from './app/module/viewing/viewing.v
 import { hashPassword } from './app/utils/password'
 import {
     type Amenity,
+    ApplicationStatus,
     AuthProvider,
     Gender,
     type LifestyleTag,
+    PaymentStatus,
     type Preference,
     PropertyStatus,
     type PropertyType,
+    RentalStatus,
     Role,
+    RoomStatus,
     type RoomType,
     type SleepSchedule,
     UserStatus,
@@ -561,6 +567,114 @@ const seedTenantActivity = async (
     console.log('  requested a viewing')
 }
 
+/**
+ * Past rent for the earnings charts. Bills of past months can't be created through the real services (they only
+ * bill from today on), so this writes demo HISTORY directly: one finished rental and one active one, each with
+ * months of rent marked paid on its due day. The app itself never does this: only Stripe settles live bills.
+ * Skipped when the demo owner already has paid bills.
+ */
+const seedRentHistory = async (owner: { id: string }) => {
+    const paidBills = await prisma.payment.count({
+        where: { status: PaymentStatus.PAID, rental: { ownerId: owner.id } },
+    })
+    if (paidBills > 0) {
+        console.log('  demo owner already has paid rent; skipping rent history')
+        return
+    }
+
+    const history = [
+        {
+            seekerEmail: 'tanvir.seeker@example.com',
+            propertyTitle: 'Family house with a garden in Uttara Sector 7',
+            roomName: 'Upstairs single',
+            startedMonthsAgo: 5,
+            paidMonths: 4,
+            // Moved out a month ago: the room is free again
+            finished: true,
+        },
+        {
+            seekerEmail: 'arif.seeker@example.com',
+            propertyTitle: 'Student hostel near Banani Road 11',
+            roomName: '2-bed room',
+            startedMonthsAgo: 3,
+            paidMonths: 3,
+            // Still living there; this month's bill is due
+            finished: false,
+        },
+    ]
+
+    for (const entry of history) {
+        const tenant = await prisma.user.findUniqueOrThrow({
+            where: { email: entry.seekerEmail },
+            select: { id: true },
+        })
+        const room = await prisma.room.findFirstOrThrow({
+            where: {
+                name: entry.roomName,
+                isDeleted: false,
+                property: { title: entry.propertyTitle, ownerId: owner.id, isDeleted: false },
+            },
+            select: { id: true, propertyId: true, monthlyRent: true },
+        })
+        const startDate = startOfDay(subMonths(new Date(), entry.startedMonthsAgo))
+        const endDate = entry.finished ? addMonths(startDate, entry.paidMonths) : null
+
+        await prisma.$transaction(async (tx) => {
+            const application = await tx.application.create({
+                data: {
+                    tenantId: tenant.id,
+                    propertyId: room.propertyId,
+                    roomId: room.id,
+                    moveInDate: startDate,
+                    occupants: 1,
+                    status: ApplicationStatus.APPROVED,
+                    expiresAt: startDate,
+                    reviewedAt: subDays(startDate, 3),
+                    createdAt: subDays(startDate, 7),
+                },
+            })
+            const rental = await tx.rental.create({
+                data: {
+                    applicationId: application.id,
+                    tenantId: tenant.id,
+                    ownerId: owner.id,
+                    propertyId: room.propertyId,
+                    roomId: room.id,
+                    monthlyRent: room.monthlyRent,
+                    startDate,
+                    endDate,
+                    status: entry.finished ? RentalStatus.COMPLETED : RentalStatus.ACTIVE,
+                    activatedAt: startDate,
+                    completedAt: endDate,
+                    liveRoomKey: entry.finished ? null : room.id,
+                    createdAt: subDays(startDate, 3),
+                },
+            })
+
+            const months = entry.finished ? entry.paidMonths : entry.paidMonths + 1
+            for (let period = 1; period <= months; period += 1) {
+                const bill = await createRentPayment(tx, { ...rental, tenantId: tenant.id }, period)
+                if (period <= entry.paidMonths) {
+                    await tx.payment.update({
+                        where: { id: bill.id },
+                        data: { status: PaymentStatus.PAID, paidAt: addDays(bill.dueDate, 1) },
+                    })
+                }
+            }
+
+            if (!entry.finished) {
+                await tx.room.update({
+                    where: { id: room.id },
+                    data: { status: RoomStatus.OCCUPIED, currentOccupants: 1 },
+                })
+            }
+        })
+        console.log(
+            `  added rent history for "${entry.roomName}" (${entry.paidMonths} paid month(s)${entry.finished ? ', finished' : ', active'})`,
+        )
+    }
+}
+
 const main = async () => {
     console.log('Seeding demo data…')
 
@@ -591,6 +705,7 @@ const main = async () => {
     await seedListings(owner.id)
     await seedOtherSeekers()
     await seedTenantActivity(tenant, owner)
+    await seedRentHistory(owner)
 
     console.log('Done.')
 }
