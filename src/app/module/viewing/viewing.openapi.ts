@@ -68,7 +68,8 @@ const idParams = z.object({ id: z.string().meta({ description: 'Viewing request 
 
 const lifecycle =
     '`PENDING` → `APPROVED` | `REJECTED` | `RESCHEDULED` (owner/admin) · `APPROVED` | `RESCHEDULED` → `COMPLETED` ' +
-    '(owner/admin, after the time) · open → `CANCELLED` (tenant, or automatically if the property, room or an account is removed).'
+    '(owner/admin, any time) · open → `CANCELLED` (tenant; owner/admin for an approved or rescheduled one, with a reason; ' +
+    'or automatically if the property, room or an account is removed).'
 
 registry.registerPath({
     method: 'post',
@@ -145,8 +146,9 @@ registry.registerPath({
         '| `APPROVED` | — | property owner / admin | `PENDING`, and the requested time must still be in the future (sets `scheduledAt` = `preferredAt`) |\n' +
         '| `REJECTED` | `ownerNote?` (shown to the tenant) | property owner / admin | `PENDING` |\n' +
         `| \`RESCHEDULED\` | \`scheduledAt\` (future, ≤ ${MAX_DAYS_AHEAD} days), \`ownerNote?\` | property owner / admin | \`PENDING\`, \`APPROVED\`, \`RESCHEDULED\` (the new time counts as confirmed) |\n` +
-        '| `COMPLETED` | — | property owner / admin | `APPROVED`, `RESCHEDULED`, only after `scheduledAt` |\n' +
-        '| `CANCELLED` | `reason?` | **the tenant who asked** | `PENDING`, `APPROVED`, `RESCHEDULED` |\n\n' +
+        '| `COMPLETED` | — | property owner / admin | `APPROVED`, `RESCHEDULED` |\n' +
+        '| `CANCELLED` | `reason?` | the tenant who asked | `PENDING`, `APPROVED`, `RESCHEDULED` |\n' +
+        '| `CANCELLED` | `reason` (required) | property owner / admin | `APPROVED`, `RESCHEDULED` |\n\n' +
         'Wrong person for that status → 403. Not allowed from the current status, or changed by someone else meanwhile → 409. ' +
         'The other side gets a notification.',
     security: authSecurity,

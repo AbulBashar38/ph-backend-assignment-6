@@ -104,8 +104,9 @@ enum LifestyleTag {
   PARTY
 }
 
-// PENDING → APPROVED | REJECTED | RESCHEDULED (owner/admin); APPROVED | RESCHEDULED → COMPLETED (owner/admin);
-// PENDING | APPROVED | RESCHEDULED → CANCELLED (tenant, or automatically when the property/room/account goes away)
+// PENDING → APPROVED | REJECTED | RESCHEDULED (owner/admin); APPROVED | RESCHEDULED → COMPLETED (owner/admin, any time);
+// PENDING | APPROVED | RESCHEDULED → CANCELLED (tenant); APPROVED | RESCHEDULED → CANCELLED (owner/admin, with a reason);
+// any open one → CANCELLED automatically when the property/room/account goes away
 enum ViewingStatus {
   PENDING
   APPROVED

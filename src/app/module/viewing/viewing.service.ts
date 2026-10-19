@@ -203,6 +203,37 @@ const cancelViewing = async (viewing: TViewing, payload: TStatusPayload<'CANCELL
 
 // ---------- owner of the property, or admin ----------
 
+// Calls off a viewing that was already agreed (a pending one is declined instead); the tenant is told why
+const cancelViewingAsHost = async (
+    actor: RequestUser,
+    viewing: TViewing,
+    payload: TStatusPayload<'CANCELLED'>,
+) => {
+    const agreed = [ViewingStatus.APPROVED, ViewingStatus.RESCHEDULED]
+    assertStatusIn(viewing, agreed, 'Cancelled')
+
+    if (!payload.reason) {
+        throw new AppError(httpStatus.BAD_REQUEST, 'Please Give The Tenant A Reason For Cancelling')
+    }
+
+    const who = isAdminRole(actor.role) ? 'An admin' : 'The owner'
+    return transition(
+        viewing,
+        agreed,
+        {
+            status: ViewingStatus.CANCELLED,
+            cancelledAt: new Date(),
+            cancellationReason: payload.reason,
+        },
+        {
+            userId: viewing.tenantId,
+            type: NotificationType.VIEWING_CANCELLED,
+            title: 'Viewing Cancelled',
+            message: `${who} cancelled your viewing of ${describe(viewing)}: ${payload.reason}`,
+        },
+    )
+}
+
 const approveViewing = async (viewing: TViewing) => {
     assertStatusIn(viewing, [ViewingStatus.PENDING], 'Approved')
 
@@ -268,15 +299,9 @@ const rescheduleViewing = async (viewing: TViewing, payload: TStatusPayload<'RES
     )
 }
 
+// The owner decides when it took place, so it can be marked done any time after it was agreed
 const completeViewing = async (viewing: TViewing) => {
     assertStatusIn(viewing, [ViewingStatus.APPROVED, ViewingStatus.RESCHEDULED], 'Completed')
-
-    if (!viewing.scheduledAt || viewing.scheduledAt.getTime() > Date.now()) {
-        throw new AppError(
-            httpStatus.CONFLICT,
-            'A Viewing Can Only Be Completed After Its Scheduled Time',
-        )
-    }
 
     return transition(
         viewing,
@@ -302,15 +327,12 @@ const updateViewingStatus = async (
 ) => {
     const viewing = await findViewing(viewingId)
 
+    // Either side can call a viewing off: the tenant who asked, or the property owner / an admin
     if (payload.status === ViewingStatus.CANCELLED) {
-        if (viewing.tenantId !== actor.userId) {
-            throw new AppError(
-                httpStatus.FORBIDDEN,
-                'Only The Tenant Who Requested This Viewing Can Cancel It',
-            )
-        }
+        if (viewing.tenantId === actor.userId) return cancelViewing(viewing, payload)
 
-        return cancelViewing(viewing, payload)
+        assertPropertyOwnerOrAdmin(actor, viewing)
+        return cancelViewingAsHost(actor, viewing, payload)
     }
 
     assertPropertyOwnerOrAdmin(actor, viewing)

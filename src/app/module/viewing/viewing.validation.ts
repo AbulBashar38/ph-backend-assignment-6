@@ -33,7 +33,7 @@ export const CreateViewingValidationZodSchema = z
 /**
  * PATCH /viewing/:id/status — one endpoint, the body depends on the chosen status:
  * APPROVED {} · REJECTED { ownerNote? } · RESCHEDULED { scheduledAt, ownerNote? } · COMPLETED {} (owner/admin)
- * CANCELLED { reason? } (the tenant who asked)
+ * CANCELLED { reason? } (the tenant who asked) · CANCELLED { reason } (owner/admin, an approved or rescheduled viewing)
  */
 export const UpdateViewingStatusValidationZodSchema = z.discriminatedUnion(
     'status',
